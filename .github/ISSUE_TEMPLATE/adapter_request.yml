@@ -1,0 +1,78 @@
+name: Adapter request
+description: Ask for a new CLI agent to be supported, or propose one yourself.
+labels: ["adapter"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [`docs/13-adapter-authoring.md`](../../docs/13-adapter-authoring.md) first —
+        a `tier: basic` adapter is plain YAML and needs no code or review cycle to try
+        locally. This template is for adapters worth shipping as a reference: a
+        `tier: full` adapter (streaming, resume, steer, interactive), or a `tier: basic`
+        one you want added to the repo's examples.
+
+        See [`docs/07-agent-capability-matrix.md`](../../docs/07-agent-capability-matrix.md)
+        for the capability survey format this project uses, and the Phase 7 candidate
+        list in [`docs/08-roadmap.md`](../../docs/08-roadmap.md) — your agent may already
+        be tracked there.
+
+  - type: input
+    id: cli
+    attributes:
+      label: CLI name and command
+      description: e.g. Gemini CLI, `gemini`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Tier you're proposing
+      options:
+        - "basic — one-shot, buffered output, YAML only"
+        - "full — streaming/resume/steer/interactive, needs a Go stream.Parser"
+        - "not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: headless
+    attributes:
+      label: Headless invocation
+      description: >-
+        The flag(s) that make this CLI run non-interactively and return without a
+        terminal attached, and whether the prompt goes on argv or stdin.
+    validations:
+      required: true
+
+  - type: textarea
+    id: sandbox
+    attributes:
+      label: Sandbox / permission flags
+      description: >-
+        How this CLI restricts file writes and shell/tool use, and whether that
+        restriction is actually binding (a flag that is merely accepted is not enough —
+        see docs/12-spike-results.md for the kind of trap this project has already hit
+        with Codex and Claude). If there is no real sandbox, say so: the adapter would
+        need `sandbox_enforced: false` and ship as UNSANDBOXED.
+    validations:
+      required: true
+
+  - type: textarea
+    id: streaming
+    attributes:
+      label: "Event stream format (tier: full only)"
+      description: >-
+        The JSON event schema this CLI emits, if any, and how a final message and a
+        session id can be extracted from it.
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else load-bearing
+      description: >-
+        Known quirks, auth model, links to the CLI's own docs, or a `--help` dump.
+    validations:
+      required: false

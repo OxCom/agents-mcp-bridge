@@ -1,0 +1,10 @@
+/bridge
+/dist/
+/bridge.exe
+*.test
+graphify-out
+graphify-out/
+docs/kb
+.serena
+.superpowers/
+docs/plan/

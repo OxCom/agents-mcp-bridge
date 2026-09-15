@@ -1,0 +1,9 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/OxCom/agents-mcp-bridge/security/advisories/new
+    about: >-
+      Do not open a public issue for a security problem. Use GitHub's private
+      vulnerability reporting instead, per SECURITY.md. You'll get an
+      acknowledgement within 3 working days and a status update at least every
+      7 days until resolution.

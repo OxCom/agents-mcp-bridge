@@ -1,0 +1,76 @@
+name: Bug report
+description: Something in the bridge itself is broken (not a security vulnerability — see the security link below).
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not use this template for a security vulnerability. See
+        [SECURITY.md](../../SECURITY.md) for private disclosure instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: bridge version
+      description: Output of `bridge version`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows (unsupported preview — see docs/08-roadmap.md Phase 5a)
+    validations:
+      required: true
+
+  - type: input
+    id: host-agent
+    attributes:
+      label: Host agent (A)
+      description: The agent that invoked the bridge, e.g. claude, codex.
+    validations:
+      required: true
+
+  - type: input
+    id: target-agent
+    attributes:
+      label: Target agent (B)
+      description: The delegated adapter, e.g. claude, codex, or a custom one.
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config
+      description: >-
+        The `agents.<id>` block and any `defaults`/`features` you changed from
+        default. Redact `allowed_roots`, `env_allowlist` values and any path
+        that reveals private information.
+      render: yaml
+    validations:
+      required: false
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: What happened, and how to reproduce it
+      description: Steps, expected behaviour, actual behaviour.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant audit log lines or stderr output
+      description: >-
+        `internal/audit` writes hashes, not bodies, by default, so this is
+        usually safe to paste as-is. Still redact anything that looks like a
+        path, token or prompt you don't want shared.
+      render: text
+    validations:
+      required: false

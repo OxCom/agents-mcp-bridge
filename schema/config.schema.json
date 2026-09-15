@@ -1,0 +1,454 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/agents-mcp-bridge/schema/config.schema.json",
+  "title": "agents-mcp-bridge configuration",
+  "description": "Normative schema for ~/.config/agents-bridge/config.yaml. Unknown properties are rejected everywhere: a typo must be a load error, never a silently ignored security setting.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "allowed_roots",
+    "agents"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 86400,
+          "default": 900
+        },
+        "max_output_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 1048576,
+          "default": 32768
+        },
+        "max_prompt_bytes": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 1048576,
+          "default": 30720
+        },
+        "max_event_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 4194304,
+          "default": 262144
+        },
+        "max_transcript_bytes": {
+          "type": "integer",
+          "minimum": 65536,
+          "maximum": 1073741824,
+          "default": 52428800
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "default": 1
+        },
+        "max_concurrent_runs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "default": 4
+        },
+        "max_agent_steers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 3
+        },
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 40
+        },
+        "question_timeout_s": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 3600,
+          "default": 300
+        },
+        "run_retention_s": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 604800,
+          "default": 3600
+        },
+        "rate_per_minute": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600,
+          "default": 20
+        },
+        "on_concurrency_limit": {
+          "enum": [
+            "reject",
+            "queue"
+          ],
+          "default": "reject"
+        },
+        "queue_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 0
+        },
+        "allow_write_mode": {
+          "type": "boolean",
+          "default": false
+        },
+        "allow_unconfined_write": {
+          "type": "boolean",
+          "default": false
+        },
+        "agent_acceptance": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Global ceiling. A per-adapter capability may narrow one of these, never widen it.",
+      "properties": {
+        "stream": {
+          "type": "boolean",
+          "default": true
+        },
+        "watch": {
+          "type": "boolean",
+          "default": true
+        },
+        "interactive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Off until an operator turns it on. This is the toggle for routing a vendor permission prompt to the operator over MCP (rule 18); it takes effect only for an adapter whose capabilities.interactive is true and which declares an interactive flag list."
+        },
+        "operator_steering": {
+          "type": "boolean",
+          "default": true
+        },
+        "agent_steering": {
+          "type": "boolean",
+          "default": false
+        },
+        "sessions": {
+          "type": "boolean",
+          "default": true
+        },
+        "audit": {
+          "type": "boolean",
+          "default": true
+        },
+        "progress_notifications": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "allowed_roots": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Absolute paths, or ~-prefixed. Canonicalised at load; a root that does not resolve to an existing directory is a load error."
+    },
+    "env_allowlist": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+        "description": "A credential-shaped name is refused by the loader's semantic rules, which can explain why."
+      },
+      "description": "EXTENDS a built-in per-platform baseline; it does not replace it. A name matching a credential pattern is a load error (SR-1)."
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bodies": {
+          "type": "boolean",
+          "default": false
+        },
+        "hmac_key_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Per-install key for content digests. Generated on first run if absent; unsalted digests are a dictionary oracle."
+        },
+        "rotate_bytes": {
+          "type": "integer",
+          "minimum": 1048576,
+          "maximum": 1073741824,
+          "default": 104857600
+        },
+        "retain_files": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 32,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,31}$",
+        "description": "agent_id. Becomes an MCP tool name and part of a state path, so it is constrained at load."
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/adapter"
+      }
+    }
+  },
+  "$defs": {
+    "argv": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string"
+      },
+      "description": "Each element is one argv element. Placeholders bind whole-element, except the --flag={{placeholder}} form."
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "args"
+      ],
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/argv"
+        },
+        "prompt": {
+          "enum": [
+            "stdin",
+            "stdin_stream_json",
+            "argv"
+          ],
+          "default": "stdin",
+          "description": "argv exposes the prompt in process listings and crash reports; it is capped at max_prompt_bytes and is a last resort."
+        },
+        "close_stdin_after": {
+          "enum": [
+            "result",
+            "never"
+          ],
+          "default": "result",
+          "description": "When to close the child's stdin. A stream-json child does not exit on turn completion - it blocks on stdin EOF (VERIFIED for claude -p) - so the run manager must close it. 'never' is only valid for a child that exits on its own."
+        }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "tier",
+        "mode",
+        "invoke"
+      ],
+      "properties": {
+        "description": {
+          "type": "string",
+          "maxLength": 600,
+          "description": "Reaches the calling model's context every session; keep it short."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^;&|<>$`\\\\\"'\\n\\r]+$"
+        },
+        "tier": {
+          "enum": [
+            "basic",
+            "full"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "read-only",
+            "write"
+          ]
+        },
+        "worktree": {
+          "enum": [
+            "required",
+            "off"
+          ],
+          "default": "required"
+        },
+        "sandbox_enforced": {
+          "type": "boolean",
+          "default": true
+        },
+        "allowed_models": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stream": {
+              "type": "boolean",
+              "default": false
+            },
+            "resume": {
+              "type": "boolean",
+              "default": false
+            },
+            "steer": {
+              "enum": [
+                true,
+                false,
+                "queued"
+              ],
+              "default": false
+            },
+            "interactive": {
+              "type": "boolean",
+              "default": false
+            },
+            "structured_output": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
+        "sandbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read-only": {
+              "$ref": "#/$defs/argv"
+            },
+            "write": {
+              "$ref": "#/$defs/argv"
+            }
+          }
+        },
+        "invoke": {
+          "$ref": "#/$defs/invocation"
+        },
+        "resume_invoke": {
+          "$ref": "#/$defs/invocation"
+        },
+        "steer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "command",
+                "stdin"
+              ]
+            },
+            "args": {
+              "$ref": "#/$defs/argv"
+            },
+            "record": {
+              "enum": [
+                "user_message"
+              ],
+              "description": "Built by a typed JSON encoder. String templates are a load error."
+            }
+          }
+        },
+        "stream": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "jsonl"
+            },
+            "source": {
+              "enum": [
+                "stdout",
+                "stderr"
+              ]
+            },
+            "vendor_session_id_path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "final_message": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Where the final assistant text lives, when it is not a distinct event type. Codex emits it as item.completed with item.type == agent_message.",
+              "properties": {
+                "event": {
+                  "type": "string"
+                },
+                "where": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            },
+            "usage": {
+              "type": "string",
+              "description": "JSON path to the token-usage object."
+            }
+          }
+        },
+        "resume_sandbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Sandbox policy expressed for the vendor's resume subcommand, where the flags differ. Required when capabilities.resume is true and the vendor's resume surface does not accept the same sandbox flags as its run surface (codex exec resume accepts neither --sandbox nor -C).",
+          "properties": {
+            "read-only": {
+              "$ref": "#/$defs/argv"
+            },
+            "write": {
+              "$ref": "#/$defs/argv"
+            }
+          }
+        },
+        "interactive": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Flags that point the child at this bridge's gate, keyed by mode like sandbox. Required when capabilities.interactive is true for the adapter's mode.",
+          "properties": {
+            "read-only": {
+              "$ref": "#/$defs/argv"
+            },
+            "write": {
+              "$ref": "#/$defs/argv"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$comment": "Semantic rules NOT expressible in JSON Schema, enforced by the loader and each with a test. Violations are load errors, never warnings: (1) tier basic forces every capability false. (2) tier full requires a Go adapter registered under the same agent_id. (3) capabilities.resume true requires resume_invoke. (4) capabilities.steer true or queued requires a steer block; steer.mode command requires steer.args; steer.mode stdin requires steer.record. (5) An empty or absent sandbox list for the adapter's mode requires sandbox_enforced false. (6) mode write requires defaults.allow_write_mode. (7) worktree off requires defaults.allow_write_mode AND defaults.allow_unconfined_write. (8) No args element may be a --dangerously*, --allow-dangerously*, --yolo or --allow-all flag. (9) command must resolve via PATH to a regular executable; on Windows .bat/.cmd/.ps1 are refused. (10) An adapter whose agent_id equals --host is dropped; resolved-executable equality is a secondary check that can only add an exclusion. (11) Every placeholder in args must be known; an unknown {{...}} is a load error. (12) The config file must be owned by the running user and must not be group- or world-writable, nor sit in a group- or world-writable directory. (13) capabilities.interactive true requires capabilities.stream true. (14) on_concurrency_limit queue requires queue_depth >= 1. (15) capabilities.resume true requires resume_sandbox whenever the adapter declares a sandbox list, because a vendor resume surface that silently drops the sandbox is writable by default (VERIFIED for codex exec resume). (16) invoke.prompt stdin_stream_json requires close_stdin_after, because such a child blocks on stdin EOF rather than exiting when its turn completes. (17) A steer block is forbidden unless capabilities.steer is true or queued; declaring one with steer false is a load error, so an unusable channel cannot sit in config looking functional. (18) capabilities.interactive true requires a non-empty interactive flag list for the adapter's mode. (19) capabilities.interactive true with a resume_invoke block requires resume_invoke.args to reference {{gate_flags}}, or a resumed run loses its gate routing. (20) capabilities.interactive true requires mode read-only: v1 denies every approval, so a write-mode interactive adapter would have every tool call refused by the gate despite appearing configured correctly."
+}

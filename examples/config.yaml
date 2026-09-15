@@ -1,0 +1,116 @@
+# agents-mcp-bridge — a working configuration.
+#
+# Copy to ~/.config/agents-bridge/config.yaml, edit allowed_roots, chmod 600.
+# Every flag list below was verified against a real CLI on 2026-09-14; see
+# docs/12-spike-results.md. The comments explain WHY each flag is present,
+# because several of them defend against behaviour the vendor docs do not
+# mention.
+
+version: 1
+
+allowed_roots:
+  - ~/projects
+
+defaults:
+  timeout_s: 600
+  max_output_bytes: 32768
+  max_concurrent_runs: 2
+
+features:
+  audit: true
+
+agents:
+  codex:
+    description: >
+      OpenAI Codex CLI, read-only. Good for a second opinion on a diff, an
+      independent review, or exploring an unfamiliar area of a codebase.
+    command: codex
+    tier: basic          # one-shot; streaming arrives with the Go adapter in phase 2
+    mode: read-only
+    sandbox:
+      read-only:
+        # approval_policy="never" is the control that actually holds. VERIFIED:
+        # with approvals_reviewer="auto_review" alone, --sandbox read-only was
+        # DEFEATED and the file was written; adding approval_policy="never"
+        # refused it. approvals_reviewer only routes escalation requests.
+        - "--sandbox"
+        - "read-only"
+        - "-c"
+        - 'approval_policy="never"'
+        - "-c"
+        - 'approvals_reviewer="user"'
+        # Stops a hostile repo's Codex config, and stops the child inheriting
+        # this bridge's own MCP registration.
+        - "--ignore-user-config"
+        - "--ignore-rules"
+    invoke:
+      # No --json here: tier basic has no event parser, so the JSONL stream
+      # would reach the caller raw. The full-tier adapter in phase 2 turns
+      # --json on and normalises it. Plain output is the honest choice for the
+      # capabilities this tier actually has.
+      #
+      # The prompt goes on stdin: argv is visible in process listings and crash
+      # reports. `codex exec -` reads it from stdin. VERIFIED.
+      args: ["exec", "--skip-git-repo-check", "{{sandbox_flags}}", "-"]
+      prompt: stdin
+
+  claude:
+    description: >
+      Anthropic Claude Code, read-only. Good for multi-file reasoning, review
+      and planning.
+    command: claude
+    tier: basic
+    mode: read-only
+    sandbox:
+      read-only:
+        # --tools is the only flag that actually bounds the surface. VERIFIED:
+        # --allowed-tools Read left 29 tools live INCLUDING Bash, Write and
+        # Edit, and a test file was created.
+        - "--tools"
+        - "Read,Glob,Grep"
+        - "--permission-mode"
+        - "manual"
+        - "--permission-prompts"
+        - "none"
+        # The only flag that stops a hostile repo's .claude/settings.json
+        # SessionStart hook running arbitrary shell. VERIFIED: the hook fired
+        # both without isolation and with --strict-mcp-config; only this
+        # stopped it. Note it also drops YOUR user-level settings.
+        - "--setting-sources"
+        - ""
+        # Scopes MCP servers, which is a different control: it stops the child
+        # loading this bridge and delegating back.
+        - "--strict-mcp-config"
+    # tier: basic forces every capability false (rule 1), so capabilities.
+    # interactive cannot be turned on here without also moving this adapter to
+    # tier: full and registering its Go adapter — see docs/04-config-schema.md
+    # for that complete shape. The list below is declared inert (capabilities.
+    # interactive left at its default, false) purely so an operator upgrading
+    # this adapter to tier: full has the flags to copy in, without ever
+    # shipping a default config that claims a capability this tier cannot
+    # deliver.
+    #
+    # Only reached once capabilities.interactive: true on tier: full. VERIFIED
+    # (docs/12 C7): a question never appears on stdout; it arrives as an MCP
+    # tools/call on the server named here. --strict-mcp-config above is what
+    # keeps this the ONLY server the child loads. It repeats --permission-
+    # prompts with a different value than the sandbox list above (none vs
+    # host) on purpose: last flag wins (VERIFIED against claude 2.1.272,
+    # docs/12 C8), and invoke.args below places {{sandbox_flags}} BEFORE
+    # {{gate_flags}}, so the fail-closed "none" stands until this feature is
+    # switched on and the gate flags land last.
+    interactive:
+      read-only:
+        - "--strict-mcp-config"
+        - "--mcp-config"
+        - "{{gate_config}}"
+        - "--permission-prompt-tool"
+        - "mcp__bridge_gate__ask"
+        - "--permission-prompts"
+        - "host"
+    # {{sandbox_flags}} MUST precede {{gate_flags}}: last flag wins (docs/12
+    # C8), so this order is what keeps --permission-prompts none the default
+    # and lets the interactive list's host value override it when emitted.
+    invoke:
+      args: ["-p", "--output-format", "text", "{{sandbox_flags}}", "{{gate_flags}}", "--", "{{prompt}}"]
+      prompt: argv
