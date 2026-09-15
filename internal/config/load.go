@@ -177,9 +177,9 @@ func applyDefaults(c *Config) {
 	if d.OnConcurrencyLimit == "" {
 		d.OnConcurrencyLimit = "reject"
 	}
-	// MaxDepth is deliberately left alone: it is a pointer so that an explicit
-	// 0 (delegation disabled) survives, while absent falls back to 1 through
-	// MaxDepthOrDefault.
+	// MaxDepth and MaxContinuations are deliberately left alone: both are
+	// pointers so that an explicit 0 (delegation disabled / no continuations)
+	// survives, while absent falls back to their *OrDefault methods.
 
 	for _, a := range c.Agents {
 		if a.Worktree == "" {

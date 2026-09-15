@@ -20,7 +20,7 @@ import (
 // binds the answer to it — the same identity check that already protects
 // the TUI, which sends the id it rendered.
 func TestAnswerRunResolvesThePendingQuestionID(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", shortTempDir(t))
 
 	b, _ := newTestBridge(t, "/bin/sleep", []string{"5"})
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -74,7 +74,7 @@ func TestAnswerRunResolvesThePendingQuestionID(t *testing.T) {
 // blind-answering with an empty QuestionID, which would either silently do
 // nothing useful today or answer a question that starts moments later.
 func TestAnswerRunRefusesWithNothingPending(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", shortTempDir(t))
 
 	b, _ := newTestBridge(t, "/bin/sleep", []string{"5"})
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))

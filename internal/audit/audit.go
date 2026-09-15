@@ -43,6 +43,10 @@ type Entry struct {
 	SteerOrigin     string    `json:"steer_origin,omitempty"` // operator | agent
 	Reason          string    `json:"reason,omitempty"`       // why a refusal happened
 	Message         string    `json:"message,omitempty"`
+	// ResumedFrom is the predecessor's run id on a continuation's run.admitted
+	// entry (docs/superpowers/specs/2026-09-15-continuation-design.md §8).
+	// Empty for an ordinary run.
+	ResumedFrom string `json:"resumed_from,omitempty"`
 
 	// Prompt and Response are populated only when bodies are enabled.
 	Prompt   string `json:"prompt,omitempty"`

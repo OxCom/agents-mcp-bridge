@@ -35,6 +35,9 @@ func (h *singleRunHandler) SetFeature(string, bool) error { return nil }
 func (h *singleRunHandler) Answer(runID, questionID, text string) error {
 	return h.r.AnswerQuestion(questionID, text)
 }
+func (h *singleRunHandler) Continue(runID, text string) (string, error) {
+	return "", errors.New("not implemented in this test handler")
+}
 
 // TestStaleAnswerCannotResolveTheQuestionThatReplacedIt pins fix-round-1's
 // cross-cutting defect: the TUI displays Q1; before the operator's keypress
@@ -49,7 +52,7 @@ func TestStaleAnswerCannotResolveTheQuestionThatReplacedIt(t *testing.T) {
 	r := run.NewForTest("run-1")
 	h := &singleRunHandler{r: r}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	s, err := control.Listen(t.TempDir(), platform.NewControlEndpoint(), h, log)
+	s, err := control.Listen(shortTempDir(t), platform.NewControlEndpoint(), h, log)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -216,6 +219,40 @@ func TestAnswerKeySendsTheOperatorAnswer(t *testing.T) {
 	}
 	if m.question != nil {
 		t.Fatal("the panel must clear once answered")
+	}
+}
+
+// TestAnswerKeyOnARestingQuestionSendsVerbContinue pins the wave-4 review's
+// Minor finding: VerbContinue had no test at all. A question from a run
+// resting in needs_input (questionResting true — pollQuestion sets this from
+// info.State == "needs_input") has no live child left to answer; an operator
+// keypress here must create a continuation (control.VerbContinue) rather
+// than resolve a question that no longer exists, and must carry no
+// QuestionID — there is nothing live for the server to match one against.
+func TestAnswerKeyOnARestingQuestionSendsVerbContinue(t *testing.T) {
+	m := newModel()
+	m.question = &run.Question{ID: "toolu_1", Options: []string{"red.txt", "blue.txt"}}
+	m.questionRun = "run-1"
+	m.questionResting = true
+	sent := make(chan control.Request, 1)
+	m.send = func(r control.Request) error { sent <- r; return nil }
+
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = mm.(model)
+	select {
+	case req := <-sent:
+		if req.Verb != control.VerbContinue || req.RunID != "run-1" || req.Text != "blue.txt" {
+			t.Fatalf("request = %#v, want VerbContinue for run-1 with text blue.txt", req)
+		}
+		if req.QuestionID != "" {
+			t.Fatalf("a continuation request must carry no QuestionID (nothing live to match it "+
+				"against): got %q", req.QuestionID)
+		}
+	default:
+		t.Fatal("selecting an option on a resting question must send a continuation")
+	}
+	if m.question != nil {
+		t.Fatal("the panel must clear once the continuation is sent")
 	}
 }
 

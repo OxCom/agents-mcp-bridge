@@ -1,0 +1,51 @@
+name: stage-tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          # "latest" can resolve to a golangci-lint built with an older Go
+          # toolchain than go.mod's Go 1.26, which it then refuses to run
+          # against. v2.13.2 is built with a Go 1.26.x toolchain and is the
+          # first v2 release, matching this repo's `version: "2"` .golangci.yml.
+          version: v2.13.2
+      # `make all` treats unformatted code as a failure, and nothing else in CI
+      # checks it, so a gofmt drift would only surface on a developer's machine.
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed for:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+      - run: go vet ./...
+      # The race detector is not optional here: the run, steer and control
+      # packages are concurrent, and their bugs do not reproduce without it
+      # (CLAUDE.md, "Commands").
+      - run: go test -race ./...

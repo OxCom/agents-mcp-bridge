@@ -79,10 +79,16 @@ BRIDGE_CONFORMANCE=1 go test ./conformance/ -v   # invokes real claude/codex CLI
 BRIDGE_GIT_TESTS=1 go test ./internal/worktree/  # creates throwaway git repos
 ```
 
-CI (`.github/workflows/ci.yml`) runs `go vet` and `go test -race` on Linux and macOS on
-every push, builds all six cross-compile targets, lints with `golangci-lint`/`gosec`/
-`govulncheck`, and runs the conformance suite nightly and on manual dispatch only — never
-on a pull request from a fork.
+CI (`.github/workflows/ci.yml`) runs one ordered pipeline on every push — **security →
+tests → compile → smoke** — where the jobs inside a stage run in parallel and each stage
+gates the next. Security is secret scanning (TruffleHog, Gitleaks) plus `govulncheck` and
+`gosec`; tests are `golangci-lint`, a `gofmt` gate and `go vet` + `go test -race` on Linux
+and macOS; compile builds all six cross-compile targets; smoke boots the binary, runs
+`bridge doctor` on both operating systems and loads every documented config example. The
+four stages are reusable workflows (`stage-*.yml`) that `.github/workflows/release.yml`
+calls in the same order before publishing, so a tag runs exactly the checks a pull request
+does. The conformance suite and the pinned-vendor-CLI smoke job run nightly and on manual
+dispatch only — never on a pull request from a fork.
 
 ## Documentation
 

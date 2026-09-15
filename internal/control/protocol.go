@@ -29,6 +29,8 @@ type Response struct {
 	Error  string    `json:"error,omitempty"`
 	Status *Status   `json:"status,omitempty"`
 	Runs   []RunInfo `json:"runs,omitempty"`
+	// SuccessorID is the new run's id, set on a successful VerbContinue reply.
+	SuccessorID string `json:"successor_id,omitempty"`
 }
 
 // Status describes a live server.
@@ -62,6 +64,9 @@ type RunInfo struct {
 	QuestionID      string   `json:"question_id,omitempty"`
 	QuestionText    string   `json:"question_text,omitempty"`
 	QuestionOptions []string `json:"question_options,omitempty"`
+	// SupersededBy is the successor run's id once this run has been continued
+	// (State == "superseded"). Empty otherwise.
+	SupersededBy string `json:"superseded_by,omitempty"`
 }
 
 // Verbs understood by the server.
@@ -78,6 +83,12 @@ const (
 	// operator is never capped; an agent is.
 	VerbSteer  = "steer"
 	VerbAnswer = "answer"
+	// Continue creates a continuation successor for a run resting in
+	// needs_input, carrying the operator's answer as the seed's untrusted-
+	// data envelope (docs/superpowers/specs/2026-09-15-continuation-design.md
+	// §7). Operator only, same as Answer: the calling agent has no route to
+	// this verb.
+	VerbContinue = "continue"
 	// Enable and Disable narrow or restore a feature for a live server. They
 	// can never exceed the config ceiling, and no MCP tool can reach them.
 	VerbEnable  = "enable"

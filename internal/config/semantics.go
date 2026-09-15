@@ -155,6 +155,18 @@ func (c *Config) validateAdapter(a *Adapter, opts Options) error {
 				"every approval, so a write-mode run would have every tool call refused by the "+
 				"gate despite appearing configured for interactive mode (rule 20)")
 		}
+		// Rule 21: the tool the child raises a question with has to survive
+		// whatever flag bounds its tool surface. Observed live: a --tools list
+		// without it leaves the gate transport working and its trigger dead —
+		// the model reports the tool unavailable and asks in plain text, which
+		// no parser sees. The name is matched anywhere in the adapter's flags
+		// because which flag is the roster is vendor knowledge the loader does
+		// not have; this catches the omission, it is not a security boundary.
+		if !mentionsQuestionTool(a) {
+			return errf(base, "capabilities.interactive is true but %q appears in no flag list "+
+				"for mode %q: the child would have no tool to raise a question with, so the "+
+				"gate would never receive one (rule 21)", questionTool, a.Mode)
+		}
 	}
 
 	// Rule 5: an empty sandbox list for the adapter's mode means the vendor
@@ -220,6 +232,32 @@ func (c *Config) validateAdapter(a *Adapter, opts Options) error {
 	}
 	a.ResolvedCommand = resolved
 	return nil
+}
+
+// questionTool is the only tool a v1 gate routes to a human; every other
+// tools/call on that channel is an approval and is denied (internal/gate).
+const questionTool = "AskUserQuestion"
+
+// mentionsQuestionTool reports whether questionTool appears in any argv
+// element the adapter passes to the child for its own mode — the sandbox,
+// resume sandbox and interactive lists, and both invocation templates.
+func mentionsQuestionTool(a *Adapter) bool {
+	mode := string(a.Mode)
+	lists := [][]string{a.Sandbox[mode], a.ResumeSandbox[mode], a.Interactive[mode]}
+	if a.Invoke != nil {
+		lists = append(lists, a.Invoke.Args)
+	}
+	if a.ResumeInvoke != nil {
+		lists = append(lists, a.ResumeInvoke.Args)
+	}
+	for _, list := range lists {
+		for _, arg := range list {
+			if strings.Contains(arg, questionTool) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // validateArgs enforces rules 8 and 11: no bypass flag may appear as an argv

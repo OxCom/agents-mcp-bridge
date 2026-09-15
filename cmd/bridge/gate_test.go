@@ -16,7 +16,7 @@ import (
 // A fake bridge-side gate: accepts one ask, returns a fixed verdict.
 func fakeGateSocket(t *testing.T) (string, chan gate.Ask) {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "g.sock")
+	socket := filepath.Join(shortTempDir(t), "g.sock")
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -41,7 +41,7 @@ func fakeGateSocket(t *testing.T) (string, chan gate.Ask) {
 // not valid JSON at all, exercising the Decode-failure branch of forward.
 func fakeGateSocketMalformed(t *testing.T) string {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "malformed.sock")
+	socket := filepath.Join(shortTempDir(t), "malformed.sock")
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -65,7 +65,7 @@ func fakeGateSocketMalformed(t *testing.T) string {
 // branch of forward — the round trip succeeds but carries no verdict.
 func fakeGateSocketEmptyBehavior(t *testing.T) string {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "empty-behavior.sock")
+	socket := filepath.Join(shortTempDir(t), "empty-behavior.sock")
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -90,7 +90,7 @@ func fakeGateSocketEmptyBehavior(t *testing.T) string {
 // successful round-trip path through forward, not an error branch.
 func fakeGateSocketBusy(t *testing.T) string {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "busy.sock")
+	socket := filepath.Join(shortTempDir(t), "busy.sock")
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)

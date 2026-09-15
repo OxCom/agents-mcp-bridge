@@ -1,21 +1,16 @@
-package main
+package tui
 
 import (
 	"os"
 	"runtime"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
-
-type mcpTextContent = mcp.TextContent
 
 // shortTempDir returns a fresh temp directory shorter than t.TempDir().
 // t.TempDir() nests under TMPDIR, which on macOS is a long per-process
-// /var/folders/<random>/T path (~45-50 bytes); once a control or gate socket
-// name is appended that leaves too little headroom under the 104-byte unix
-// socket sun_path limit, so tests that actually bind a socket need a
-// shorter base.
+// /var/folders/<random>/T path (~45-50 bytes); once a control socket name is
+// appended that leaves too little headroom under the 104-byte unix socket
+// sun_path limit, so tests that actually bind a socket need a shorter base.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
 	base := os.TempDir()

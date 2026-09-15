@@ -101,6 +101,11 @@ agents:
     # switched on and the gate flags land last.
     interactive:
       read-only:
+        # Rule 21: the roster flag repeated with AskUserQuestion added. It lands
+        # after {{sandbox_flags}}, so the plain read-only run keeps the three-tool
+        # surface and only an interactive run gains the question tool.
+        - "--tools"
+        - "Read,Glob,Grep,AskUserQuestion"
         - "--strict-mcp-config"
         - "--mcp-config"
         - "{{gate_config}}"

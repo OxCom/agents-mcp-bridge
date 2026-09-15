@@ -20,7 +20,13 @@ type Defaults struct {
 	MaxTranscriptBytes int64 `yaml:"max_transcript_bytes"`
 	// MaxDepth is a pointer because 0 is meaningful (delegation disabled) and
 	// must be distinguishable from absent (use the default of 1).
-	MaxDepth             *int   `yaml:"max_depth"`
+	MaxDepth *int `yaml:"max_depth"`
+	// MaxContinuations is a pointer for the same reason as MaxDepth: 0 is
+	// meaningful (a needs_input run may never be continued) and must be
+	// distinguishable from absent (use the default of 3). It bounds how many
+	// links a continuation chain may have, so an agent that keeps re-asking
+	// the same question cannot loop forever.
+	MaxContinuations     *int   `yaml:"max_continuations"`
 	MaxConcurrentRuns    int    `yaml:"max_concurrent_runs"`
 	MaxAgentSteers       int    `yaml:"max_agent_steers"`
 	MaxTurns             int    `yaml:"max_turns"`
@@ -192,6 +198,16 @@ func (d Defaults) MaxDepthOrDefault() int {
 		return 1
 	}
 	return *d.MaxDepth
+}
+
+// MaxContinuationsOrDefault returns the configured chain-depth ceiling,
+// defaulting to 3. Absent means "up to three continuations"; an explicit 0
+// means "none" (see MaxContinuations).
+func (d Defaults) MaxContinuationsOrDefault() int {
+	if d.MaxContinuations == nil {
+		return 3
+	}
+	return *d.MaxContinuations
 }
 
 // SandboxEnforcedOrDefault reports whether the vendor enforces anything for this

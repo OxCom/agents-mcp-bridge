@@ -136,6 +136,12 @@ func (b *bridge) getChanges(ctx context.Context, req *mcp.CallToolRequest, in ru
 		return nil, changesOutput{}, err
 	}
 	s := r.Snapshot()
+	if s.State == run.StateSuperseded {
+		// The predecessor's change-store entry was retired when the
+		// continuation started: exactly one acceptable diff exists per
+		// chain, and it lives on the successor, not here.
+		return nil, changesOutput{}, &SupersededError{RunID: s.ID, SuccessorID: s.SupersededBy}
+	}
 	if !s.Confined {
 		// An unconfined run edited the tree directly: there is no diff to get,
 		// and saying so is better than returning an empty success.
@@ -163,6 +169,13 @@ func (b *bridge) acceptChanges(ctx context.Context, req *mcp.CallToolRequest, in
 		return nil, changesOutput{}, err
 	}
 	s := r.Snapshot()
+	if s.State == run.StateSuperseded {
+		// Same guard as getChanges: this is a property of the state machine,
+		// not of changeStore.discard having already run on this predecessor
+		// (wave-4 review, Important — the two windows are not the same
+		// thing, and the guard belongs on both).
+		return nil, changesOutput{}, &SupersededError{RunID: s.ID, SuccessorID: s.SupersededBy}
+	}
 	if !s.Confined {
 		return textResult("run %s ran UNCONFINED: its edits are already in your tree", s.ID),
 			changesOutput{RunID: s.ID, Status: "not_applicable_unconfined"}, nil

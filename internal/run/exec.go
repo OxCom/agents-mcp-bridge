@@ -48,6 +48,17 @@ type Spec struct {
 	// it; the diff is taken by the caller once the run finishes.
 	Worktree any
 
+	// ResumedFrom is the predecessor's run id when this run is a
+	// continuation's successor. Empty for an ordinary run. Start also uses
+	// it to exclude the predecessor from the concurrency admission check
+	// (liveCountExcludingLocked), so the successor inherits the
+	// predecessor's still-occupied needs_input slot instead of needing it
+	// freed in advance.
+	ResumedFrom string
+	// Continuation, when set, is attached to the started run so it can later
+	// be continued itself if it stops on needs_input (Run.SetContinuation).
+	Continuation *ContinuationRecord
+
 	// StreamStdin keeps the child's stdin open so guidance can be written into
 	// a live conversation. Such a child blocks on stdin EOF rather than exiting
 	// when its turn ends, so the manager closes it explicitly.
@@ -74,7 +85,12 @@ func (reg *Registry) Start(spec Spec, group platform.ProcessGroup) (*Run, error)
 	reg.sweepExpired()
 
 	reg.mu.Lock()
-	if live := reg.liveCountLocked(); live >= reg.maxLive {
+	// spec.ResumedFrom, when set, excludes the predecessor from the count:
+	// a continuation's successor is admitted against the room the
+	// predecessor's own needs_input rest state already occupies (see
+	// liveCountExcludingLocked). For an ordinary run ResumedFrom is empty
+	// and this is exactly the old liveCountLocked check.
+	if live := reg.liveCountExcludingLocked(spec.ResumedFrom); live >= reg.maxLive {
 		reg.mu.Unlock()
 		return nil, fmt.Errorf("%w: %d of %d slots in use", ErrConcurrencyLimit, live, reg.maxLive)
 	}
@@ -93,9 +109,13 @@ func (reg *Registry) Start(spec Spec, group platform.ProcessGroup) (*Run, error)
 		Depth:           spec.Depth,
 		Started:         time.Now(),
 		PromptBytes:     len(spec.Prompt),
+		ResumedFrom:     spec.ResumedFrom,
 		state:           StateRunning,
 		done:            make(chan struct{}),
 		transition:      reg.transition,
+	}
+	if spec.Continuation != nil {
+		r.continuation = spec.Continuation
 	}
 	reg.runs[r.ID] = r
 	reg.mu.Unlock()

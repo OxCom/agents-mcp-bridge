@@ -21,12 +21,18 @@ const (
 	StateCancelled  State = "cancelled"
 	StateRefused    State = "refused"
 	StateNeedsInput State = "needs_input"
+	// StateSuperseded is a predecessor that has been continued: a successor
+	// run now carries the chain forward. Unlike StateNeedsInput it IS
+	// terminal, so it frees its max_concurrent_runs slot immediately and
+	// becomes prunable on the normal retention clock (docs/superpowers/specs/
+	// 2026-09-15-continuation-design.md §3).
+	StateSuperseded State = "superseded"
 )
 
 // IsTerminal reports whether the run has finished. Invariant 1: a run in a
 // terminal state has no live child process.
 func (s State) IsTerminal() bool {
-	return s == StateCompleted || s == StateFailed || s == StateCancelled || s == StateRefused
+	return s == StateCompleted || s == StateFailed || s == StateCancelled || s == StateRefused || s == StateSuperseded
 }
 
 // Run is one delegated execution.
@@ -43,6 +49,11 @@ type Run struct {
 	Finished        time.Time
 	PromptBytes     int
 	TranscriptPath  string
+	// ResumedFrom is the predecessor's bridge-issued run id when this run is
+	// a continuation's successor, set once at admission. Empty for an
+	// ordinary run. It is a run id, never a vendor session id — the vendor
+	// session never leaves the bridge (Snapshot.VendorSession).
+	ResumedFrom string
 
 	mu                 sync.Mutex
 	state              State
@@ -89,6 +100,17 @@ type Run struct {
 	// finish would otherwise try to close it again for a real run whose child
 	// exits after NeedsInput already fired.
 	doneClosed bool
+	// resumedBy is the successor's run id, set once by Supersede. Empty
+	// unless state is StateSuperseded.
+	resumedBy string
+	// continuation holds what a successor's seed needs, attached at
+	// admission (Spec.Continuation) and consumed exactly once by
+	// TakeContinuation. It is never persisted to disk and does not survive a
+	// bridge restart, by design (docs/superpowers/specs/
+	// 2026-09-15-continuation-design.md §3): prompt bodies at rest would be a
+	// new data-retention commitment in a project that audits digests, not
+	// bodies.
+	continuation *ContinuationRecord
 	// transition, when set, is told about a state change that has no other
 	// audit sink in reach — today only the needs_input -> failed expiry
 	// (docs/11 §3 invariant 5: every transition is one audit entry). It is a
@@ -131,6 +153,14 @@ type Snapshot struct {
 	// Transcript is the on-disk event log. Operator-facing only; returning it
 	// to the caller would let it read the raw, un-enveloped stream.
 	Transcript string
+	// ResumedFrom is the predecessor's run id when this run continues a
+	// chain; empty for an ordinary run.
+	ResumedFrom string
+	// SupersededBy is the successor's run id once State is StateSuperseded;
+	// empty otherwise. list_runs and bridge runs surface it as
+	// superseded_by (docs/superpowers/specs/2026-09-15-continuation-design.md
+	// §6).
+	SupersededBy string
 }
 
 func (r *Run) snapshot() Snapshot {
@@ -176,6 +206,8 @@ func (r *Run) snapshot() Snapshot {
 		Transcript:      r.TranscriptPath,
 		Mode:            r.Mode,
 		CWD:             r.CWD,
+		ResumedFrom:     r.ResumedFrom,
+		SupersededBy:    r.resumedBy,
 	}
 }
 
@@ -381,6 +413,22 @@ func NewRegistry(maxLive int, retention time.Duration) *Registry {
 	return &Registry{runs: make(map[string]*Run), maxLive: maxLive, retention: retention}
 }
 
+// RegisterForTest inserts a Run directly into the registry, bypassing
+// Start's admission check entirely, and wires it to the registry's
+// transition callback the way Start does. It exists so a test in another
+// package can construct an artificial concurrency condition: given
+// liveCountExcludingLocked's exclusion, the ordinary Start path can never by
+// itself leave more than maxLive-1 OTHER runs live alongside a given
+// predecessor, so a test that wants Start to refuse a continuation's own
+// admission needs a run whose presence did not come through that guarantee.
+// Production code never calls this.
+func (reg *Registry) RegisterForTest(r *Run) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	r.transition = reg.transition
+	reg.runs[r.ID] = r
+}
+
 // OnTransition wires a callback for state changes a Run cannot audit itself
 // (see Registry.transition). It must be called before Start, once, at
 // server startup — cmd/bridge wires it to b.audit. Calling it after any run
@@ -498,8 +546,26 @@ func (reg *Registry) pruneLocked() {
 }
 
 func (reg *Registry) liveCountLocked() int {
+	return reg.liveCountExcludingLocked("")
+}
+
+// liveCountExcludingLocked is liveCountLocked but never counts the run with
+// the given id (an empty id excludes nothing). Start passes spec.ResumedFrom
+// here so a continuation's successor is admitted against the room its
+// predecessor's own needs_input rest state already occupies, instead of
+// requiring that slot freed in advance by retiring the predecessor first.
+// That is what lets Run.Supersede run AFTER Start succeeds rather than
+// before it (docs/superpowers/specs/2026-09-15-continuation-design.md;
+// cmd/bridge/continuation.go): the predecessor's slot is never actually
+// vacated by this exclusion, only treated as available to its own successor,
+// so nothing here can be used to admit more than one extra run per
+// predecessor — every other non-terminal run still counts normally.
+func (reg *Registry) liveCountExcludingLocked(excludeID string) int {
 	n := 0
-	for _, r := range reg.runs {
+	for id, r := range reg.runs {
+		if excludeID != "" && id == excludeID {
+			continue
+		}
 		state, _ := r.peekState()
 		if !state.IsTerminal() {
 			n++

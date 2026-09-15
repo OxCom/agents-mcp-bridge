@@ -1,0 +1,110 @@
+name: stage-smoke
+
+on:
+  workflow_call:
+    inputs:
+      vendor_clis:
+        description: Install the pinned vendor CLIs from npm and smoke them.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # This job proves the binary builds and boots, that the loader and its semantic
+  # rules run, and that the platform paths resolve on both supported operating
+  # systems. It needs no vendor CLI, no credentials and no model invocation.
+  doctor:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: go build -o bridge ./cmd/bridge
+      - name: doctor against a minimal config
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/minimal.yaml" <<'EOF'
+          version: 1
+          allowed_roots: [/tmp]
+          agents:
+            demo:
+              command: /bin/echo
+              tier: basic
+              mode: read-only
+              sandbox:
+                read-only: ["--safe"]
+              invoke:
+                args: ["run"]
+          EOF
+          # Loader rule 12 rejects a config file that is group- or world-writable,
+          # so the permissions have to be tightened before bridge reads it.
+          chmod 600 "$RUNNER_TEMP/minimal.yaml"
+          # The adapter command is /bin/echo rather than /bin/cat because doctor
+          # probes each adapter with `<command> --version`, and BSD cat on macOS
+          # exits non-zero for --version while echo exits 0 on both platforms.
+          ./bridge doctor --host claude --config "$RUNNER_TEMP/minimal.yaml"
+
+  # The specification and the implementation must not drift: every complete YAML
+  # example in the docs is loaded by the real loader, semantic rules included.
+  spec-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: go test ./internal/config/ -run TestDocumentedExamplesLoad -v
+
+  # Gated because it installs from the npm network on every run, which belongs on
+  # a schedule or a release rather than on every push. It still spends no vendor
+  # credits and needs no secrets: doctor invokes no model.
+  vendor-pins:
+    if: inputs.vendor_clis
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # The supported versions: codex-cli 0.154.0 is the binary every spike ran
+      # against (docs/12-spike-results.md:3), and claude 2.1.272 is the newer of
+      # the two claude builds spiked, the one that produced the interactive-mode
+      # results C7-C9 (:8 and :11). Bumping either pin means re-running the
+      # spikes, per docs/12-spike-results.md:18.
+      - name: install pinned vendor CLIs
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.272 @openai/codex@0.154.0
+      # The npm tag could resolve to something else than the pin the spike
+      # results were observed against; assert the actual binaries, not the
+      # install command.
+      - name: assert pinned versions
+        run: |
+          set -euo pipefail
+          # Captured first, not piped: `--version | grep -q` can leave the
+          # writer killed by SIGPIPE, which pipefail then turns into a failure
+          # on a version that actually matched.
+          claude_v=$(claude --version)
+          codex_v=$(codex --version)
+          case "$claude_v" in *2.1.272*) ;; *) echo "claude pin mismatch: $claude_v"; exit 1 ;; esac
+          case "$codex_v" in *0.154.0*) ;; *) echo "codex pin mismatch: $codex_v"; exit 1 ;; esac
+      - run: go build -o bridge ./cmd/bridge
+      # doctor reports config, paths, adapters and host detection without
+      # invoking a model, so it spends no vendor credits.
+      - name: doctor
+        run: |
+          ./bridge doctor --host claude --config examples/config.yaml
+          ./bridge doctor --host codex --config examples/config.yaml

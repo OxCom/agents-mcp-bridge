@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -26,6 +27,27 @@ import (
 
 	"github.com/oxcom/agents-mcp-bridge/internal/control"
 )
+
+// shortTempDir returns a fresh temp directory shorter than t.TempDir(),
+// suitable as a base for a directory a unix socket path will be built under.
+// t.TempDir() nests under os.TempDir() using a pattern built from the full
+// test name, which is long enough on its own (e.g. this package's test
+// names run 30-60+ bytes) to blow the 104-byte sun_path budget once
+// "/agents-bridge/gate/gate-run-xxxxxxxxxxxx.sock" is appended — mirrors
+// internal/control/testutil_test.go's helper of the same name and reason.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	base := os.TempDir()
+	if runtime.GOOS == "darwin" {
+		base = "/tmp"
+	}
+	dir, err := os.MkdirTemp(base, "b")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
 
 // claudeInteractive is a tier-full claude adapter with the gate wired in:
 // capabilities.interactive: true (rule 18, backed by a non-empty interactive
@@ -62,6 +84,10 @@ agents:
         - "--strict-mcp-config"
     interactive:
       read-only:
+        # The roster flag repeated with AskUserQuestion added (rule 21): it
+        # lands after {{sandbox_flags}}, so only this run gains the tool.
+        - "--tools"
+        - "Read,Glob,Grep,AskUserQuestion"
         - "--strict-mcp-config"
         - "--mcp-config"
         - "{{gate_config}}"
@@ -121,7 +147,20 @@ const (
 // over.
 func startInteractiveBridge(t *testing.T, configPath, host string) (h *harness, controlSocket, stateHome string) {
 	t.Helper()
-	runtimeHome := t.TempDir()
+	// runtimeHome must be short: it becomes XDG_RUNTIME_DIR, from which both
+	// the control socket (internal/control.Listen) and, for an interactive
+	// run, the per-run gate socket (internal/gate.Listen) derive their
+	// paths. t.TempDir() nests under a directory built from t.Name() (long
+	// for these tests, e.g. "TestClaudeQuestionReachesTheGateAndThe...")
+	// plus a numeric suffix; once "/agents-bridge/gate/gate-run-xxxx.sock"
+	// is appended that exceeds the 104-byte portable sun_path limit
+	// (internal/platform.sunPathMax) and every socket bind in this test
+	// fails before any vendor CLI is ever invoked. shortTempDir sidesteps
+	// this the same way internal/control/testutil_test.go's helper of the
+	// same name does for that package's own socket-binding tests.
+	// stateHome has no such constraint (it holds files, not sockets), so it
+	// keeps using t.TempDir() for the isolation guarantees documented below.
+	runtimeHome := shortTempDir(t)
 	stateHome = t.TempDir()
 
 	// Snapshot the REAL XDG_STATE_HOME's audit files before overriding the
@@ -462,7 +501,12 @@ func TestClaudeQuestionReachesTheGateAndTheAnswerReachesTheModel(t *testing.T) {
 	attachWatcher(t, c, runID)
 
 	q := waitForQuestion(t, c, runID, questionWaitS)
-	if q.QuestionText == "" || (!strings.Contains(q.QuestionText, "red.txt") && !strings.Contains(q.QuestionText, "blue.txt")) {
+	// The choices routinely arrive in the question's options rather than in
+	// its text — a real claude question is "What should I name the file?"
+	// with options [red.txt blue.txt] — so asserting on the text alone would
+	// fail a question that reached the bridge intact.
+	asked := q.QuestionText + " " + strings.Join(q.QuestionOptions, " ")
+	if q.QuestionText == "" || (!strings.Contains(asked, "red.txt") && !strings.Contains(asked, "blue.txt")) {
 		t.Fatalf("question did not reach the bridge: %+v", q)
 	}
 

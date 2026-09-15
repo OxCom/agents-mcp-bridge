@@ -13,13 +13,16 @@ import (
 )
 
 type fakeHandler struct {
-	stopped  []string
-	accepted []string
-	rejected []string
-	steered  []string
-	answered []string
-	features []string
-	stopErr  error
+	stopped     []string
+	accepted    []string
+	rejected    []string
+	steered     []string
+	answered    []string
+	continued   []string
+	features    []string
+	stopErr     error
+	continueID  string
+	continueErr error
 }
 
 func (h *fakeHandler) Status() Status {
@@ -55,6 +58,14 @@ func (h *fakeHandler) Answer(id, questionID, text string) error {
 	return nil
 }
 
+func (h *fakeHandler) Continue(id, text string) (string, error) {
+	h.continued = append(h.continued, id+":"+text)
+	if h.continueErr != nil {
+		return "", h.continueErr
+	}
+	return h.continueID, nil
+}
+
 func (h *fakeHandler) SetFeature(feature string, on bool) error {
 	h.features = append(h.features, fmt.Sprintf("%s=%v", feature, on))
 	return nil
@@ -62,7 +73,7 @@ func (h *fakeHandler) SetFeature(feature string, on bool) error {
 
 func newServer(t *testing.T) (*Server, *fakeHandler, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := shortTempDir(t)
 	h := &fakeHandler{}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s, err := Listen(dir, platform.NewControlEndpoint(), h, log)
@@ -154,6 +165,31 @@ func TestSteerAndAnswerReachTheHandler(t *testing.T) {
 	}
 }
 
+func TestContinueReachesTheHandlerAndReturnsTheSuccessorID(t *testing.T) {
+	s, h, _ := newServer(t)
+	h.continueID = "run-2"
+	c, _ := Dial(s.Socket())
+	defer c.Close()
+	resp, err := c.Do(Request{Verb: VerbContinue, RunID: "run-1", Text: "use bcrypt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.SuccessorID != "run-2" {
+		t.Fatalf("SuccessorID = %q, want run-2", resp.SuccessorID)
+	}
+	if len(h.continued) != 1 || h.continued[0] != "run-1:use bcrypt" {
+		t.Fatalf("continued=%v", h.continued)
+	}
+	if _, err := c.Do(Request{Verb: VerbContinue, RunID: "run-1"}); err == nil {
+		t.Fatal("continue without text must be refused")
+	}
+	h.continueErr = fmt.Errorf("this continuation chain has reached its configured limit")
+	resp, err = c.Do(Request{Verb: VerbContinue, RunID: "run-1", Text: "again"})
+	if err == nil || resp.OK {
+		t.Fatalf("expected the handler's refusal to surface as an error, got resp=%+v err=%v", resp, err)
+	}
+}
+
 func TestEnableAndDisableReachTheHandler(t *testing.T) {
 	s, h, _ := newServer(t)
 	c, _ := Dial(s.Socket())
@@ -235,7 +271,7 @@ func TestIndexIsOwnerOnly(t *testing.T) {
 func TestMultipleServersCoexist(t *testing.T) {
 	// One host session per agent means several live servers; the index must
 	// hold them all.
-	dir := t.TempDir()
+	dir := shortTempDir(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s1, err := Listen(dir, platform.NewControlEndpoint(), &fakeHandler{}, log)
 	if err != nil {

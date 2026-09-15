@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,6 +117,60 @@ func TestDiffIncludesEditsAndNewFiles(t *testing.T) {
 	}
 }
 
+func TestChangedFilesAgainstBaseSurvivesAWIPCommit(t *testing.T) {
+	// Pins the wave-4 review fix: ChangedFiles (working-tree status only)
+	// goes empty once ContinueFrom commits the predecessor's work as a WIP
+	// checkpoint, so a retried continuation must read
+	// ChangedFilesAgainstBase instead to still see what changed.
+	requireGitTests(t)
+	repo := newRepo(t)
+	wt, err := Create(repo, t.TempDir(), "run-wip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wt.Remove()
+
+	if err := os.WriteFile(filepath.Join(wt.Dir, "a.txt"), []byte("agent edit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt.Dir, "new.txt"), []byte("created\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := wt.ChangedFilesAgainstBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 2 {
+		t.Fatalf("changed files before commit = %v, want two", before)
+	}
+
+	succ, err := ContinueFrom(wt, t.TempDir(), "run-wip-succ")
+	if err != nil {
+		t.Fatalf("ContinueFrom: %v", err)
+	}
+	defer succ.Remove()
+
+	// The predecessor's own working tree is now clean (its changes are
+	// committed), so ChangedFiles would report nothing — the defect this
+	// method exists to fix.
+	statusOnly, err := wt.ChangedFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statusOnly) != 0 {
+		t.Fatalf("test setup: ChangedFiles after commit = %v, want empty (working tree clean)", statusOnly)
+	}
+
+	after, err := wt.ChangedFilesAgainstBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 2 {
+		t.Fatalf("changed files against base after WIP commit = %v, want two", after)
+	}
+}
+
 func TestAcceptedPatchLandsInTheCallersTree(t *testing.T) {
 	requireGitTests(t)
 	repo := newRepo(t)
@@ -211,6 +266,137 @@ func TestNonRepositoryIsRefused(t *testing.T) {
 	// confined run into an unconfined one.
 	if _, err := Create(t.TempDir(), t.TempDir(), "run-6"); err == nil {
 		t.Fatal("a plain directory must be refused for a confined write run")
+	}
+}
+
+func TestContinueFromCommitsDirtyPredecessorAndSuccessorSeesTheWork(t *testing.T) {
+	requireGitTests(t)
+	repo := newRepo(t)
+	state := t.TempDir()
+
+	pred, err := Create(repo, state, "run-pred")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer pred.Remove()
+
+	if err := os.WriteFile(filepath.Join(pred.Dir, "a.txt"), []byte("predecessor edit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pred.Dir, "new.txt"), []byte("predecessor created\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	succ, err := ContinueFrom(pred, state, "run-succ")
+	if err != nil {
+		t.Fatalf("ContinueFrom: %v", err)
+	}
+	defer succ.Remove()
+
+	// The successor's own checkout already carries the predecessor's work: no
+	// live directory is shared, but the content travelled through the WIP
+	// commit.
+	got, err := os.ReadFile(filepath.Join(succ.Dir, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "predecessor edit\n" {
+		t.Fatalf("successor a.txt = %q, want the predecessor's edit", got)
+	}
+	if _, err := os.Stat(filepath.Join(succ.Dir, "new.txt")); err != nil {
+		t.Fatalf("successor is missing the predecessor's new file: %v", err)
+	}
+
+	// No directory is shared between predecessor and successor.
+	if succ.Dir == pred.Dir {
+		t.Fatal("predecessor and successor share the same worktree directory")
+	}
+
+	// The predecessor's own worktree is left exactly as the agent left it —
+	// ContinueFrom does not remove it.
+	if _, err := os.Stat(pred.Dir); err != nil {
+		t.Fatalf("predecessor worktree was removed by ContinueFrom: %v", err)
+	}
+}
+
+func TestContinueFromCleanPredecessorProducesNoCommit(t *testing.T) {
+	requireGitTests(t)
+	repo := newRepo(t)
+	state := t.TempDir()
+
+	pred, err := Create(repo, state, "run-pred-clean")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer pred.Remove()
+
+	predHead, err := git(pred.Dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	succ, err := ContinueFrom(pred, state, "run-succ-clean")
+	if err != nil {
+		t.Fatalf("ContinueFrom: %v", err)
+	}
+	defer succ.Remove()
+
+	succHead, err := git(succ.Dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(succHead) != strings.TrimSpace(predHead) {
+		t.Fatalf("clean predecessor produced a commit: successor HEAD %s != predecessor HEAD %s", succHead, predHead)
+	}
+
+	// A clean predecessor is indistinguishable from a fresh run: the
+	// predecessor's own commit count in the repo must not have grown.
+	log, err := git(pred.RepoRoot, "log", "--oneline", "--all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(log, "\n") != 1 {
+		t.Fatalf("unexpected commit count after a clean continuation:\n%s", log)
+	}
+}
+
+func TestChainDiffSpansBothRunsWork(t *testing.T) {
+	requireGitTests(t)
+	repo := newRepo(t)
+	state := t.TempDir()
+
+	pred, err := Create(repo, state, "run-chain-1")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer pred.Remove()
+	if err := os.WriteFile(filepath.Join(pred.Dir, "a.txt"), []byte("first link\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	succ, err := ContinueFrom(pred, state, "run-chain-2")
+	if err != nil {
+		t.Fatalf("ContinueFrom: %v", err)
+	}
+	defer succ.Remove()
+	if err := os.WriteFile(filepath.Join(succ.Dir, "b.txt"), []byte("second link\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	patch, err := succ.Diff()
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	for _, want := range []string{"a.txt", "first link", "b.txt", "second link"} {
+		if !strings.Contains(patch, want) {
+			t.Errorf("chain diff missing %q, want it to span the whole chain:\n%s", want, patch)
+		}
+	}
+}
+
+func TestContinueFromRefusesWithNoPredecessor(t *testing.T) {
+	if _, err := ContinueFrom(nil, t.TempDir(), "run-x"); !errors.Is(err, ErrNoPredecessor) {
+		t.Fatalf("got err = %v, want ErrNoPredecessor", err)
 	}
 }
 

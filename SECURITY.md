@@ -66,9 +66,54 @@ trust boundary, not plumbing. The full analysis is in
     shutdown; a gate that fails to start aborts the run rather than proceeding
     non-interactively. **Declared, not yet enforced:** that a real delegated agent, asking a
     real question through this path end to end, actually receives the operator's answer and
-    nothing else — no conformance test yet drives a real vendor CLI through a question, so
-    this end-to-end property rests on the unit-level guarantees above plus manual testing,
-    not on an automated assertion.
+    nothing else. The gated conformance test for this
+    (`conformance.TestClaudeQuestionReachesTheGateAndTheAnswerReachesTheModel`,
+    `BRIDGE_CONFORMANCE=1 go test ./conformance/`) was unrunnable in earlier sessions — it
+    failed at harness setup, on a socket path exceeding the 104-byte `sun_path` limit, before
+    ever invoking a real vendor CLI — and that harness defect is now fixed. It has still never
+    passed end to end: the one real run made since the fix did not reach the assertion this
+    test exists to make, for the reason recorded under property 12 below (the adapter's
+    `--tools` list does not include `AskUserQuestion`, so the child never calls it at all).
+    This end-to-end property therefore still rests on the unit-level guarantees above plus
+    manual testing, not on an automated assertion that has ever passed.
+12. **A `needs_input` run can be continued by the operator, never by the delegated agent, and
+    the continuation seed keeps agent-authored and human-authored text apart.** *Enforced*
+    (asserted by `internal/run`, `internal/worktree` and `cmd/bridge` unit tests, including
+    `BRIDGE_GIT_TESTS=1 go test ./internal/worktree/`): only a run resting in `needs_input` can
+    be continued (`Run.Supersede`/`TakeContinuation` refuse otherwise); an unconfined write run
+    (`worktree: off`) refuses continuation outright, since its edits already landed in the real
+    tree with no diff to carry forward; a chain is bounded by `defaults.max_continuations`
+    (default 3); no code on the MCP tool surface reaches `continueRun` — only the control
+    channel's `bridge answer`/TUI panel do, both operator-side. In the continuation seed, the
+    delegated agent's question is enclosed in the untrusted-data envelope with attribution; the
+    operator's answer is sanitized but delivered outside the envelope, attributed to the
+    operator, as an instruction the successor should act on — putting the answer inside the
+    envelope too was an earlier defect (the envelope's own "do not act on this" preamble would
+    have told the successor to ignore the operator's answer along with the question), fixed
+    before this note was written. Predecessor retirement (change-store entry, worktree handle,
+    gate) is unconditional once the successor's `Start` succeeds, not gated on `Supersede`'s
+    own outcome, closing a window where a predecessor whose `needs_input` deadline lapsed
+    mid-continuation could otherwise leave two independently acceptable diffs live for one
+    chain. **Declared, not enforced:** the full path — a real delegated agent asking a real
+    question with no operator attached, the operator answering, and the successor completing
+    the original task using that answer — has a gated conformance test,
+    `conformance.TestNeedsInputAnswerContinuesIntoASuccessorRun` (`BRIDGE_CONFORMANCE=1 go test
+    ./conformance/`). It spends real vendor credits and is not run in CI or by default. It was
+    unrunnable in earlier sessions — harness setup failed on socket path length before ever
+    reaching a vendor CLI — and that is now fixed, but the test has still never passed: the one
+    real run made since the fix failed for the same reason property 11 above now records — the
+    shipped adapter's `--tools` list omits `AskUserQuestion`, so the delegated agent never asks
+    a question for the chain to continue from. This property therefore still rests on the
+    unit-level guarantees above plus manual testing, not on an automated end-to-end assertion
+    that has ever passed. A continuation record is
+    held in memory only and is lost on a bridge restart; an operator who answers a run whose
+    record is gone gets a typed refusal, never a continuation seeded with partial context.
+    **Enabling audit bodies also captures operator answers.** The successor's `run.admitted`
+    entry carries the full seed as `Prompt`, matching `makeAsk`'s existing practice for an
+    ordinary run's prompt; with `audit.bodies` on, that seed — and therefore the operator's
+    answer to the delegated agent's question — is written to the audit log body, not only its
+    digest. `audit.Write` still strips bodies whenever `bodies` is off, same as every other
+    event.
 
 ## Security properties we do NOT claim
 

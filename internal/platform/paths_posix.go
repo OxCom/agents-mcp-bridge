@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 )
 
 const dirMode = 0o700
@@ -26,15 +27,31 @@ func NewPaths() (Paths, error) {
 	configHome := envOr("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	stateHome := envOr("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 
-	runtimeHome := os.Getenv("XDG_RUNTIME_DIR")
-	if runtimeHome == "" {
-		runtimeHome = filepath.Join(os.TempDir(), fmt.Sprintf("agents-bridge-%d", os.Getuid()))
+	var runtimeDir string
+	if xdg := os.Getenv("XDG_RUNTIME_DIR"); xdg != "" {
+		// XDG_RUNTIME_DIR is already per-user (e.g. /run/user/1000), so the
+		// "agents-bridge" segment only namespaces us within it.
+		runtimeDir = filepath.Join(xdg, "agents-bridge")
+	} else {
+		// os.TempDir() is TMPDIR on macOS: a long, per-process
+		// /var/folders/<random>/T path (~45-50 bytes) that leaves too
+		// little headroom under the 104-byte unix socket sun_path limit
+		// once "gate/gate-<runID>.sock" is appended (verified in CI: a
+		// gate socket path there reached 128 bytes). /tmp is short and, on
+		// macOS, the same on every process, so the per-user isolation that
+		// XDG_RUNTIME_DIR would have given us instead comes from the 0700
+		// "agents-bridge-<uid>" directory created below.
+		base := os.TempDir()
+		if goruntime.GOOS == "darwin" {
+			base = "/tmp"
+		}
+		runtimeDir = filepath.Join(base, fmt.Sprintf("agents-bridge-%d", os.Getuid()))
 	}
 
 	p := &posixPaths{
 		config:  filepath.Join(configHome, "agents-bridge", "config.yaml"),
 		state:   filepath.Join(stateHome, "agents-bridge"),
-		runtime: filepath.Join(runtimeHome, "agents-bridge"),
+		runtime: runtimeDir,
 	}
 	for _, dir := range []string{p.state, p.runtime} {
 		if err := os.MkdirAll(dir, dirMode); err != nil {

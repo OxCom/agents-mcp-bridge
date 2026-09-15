@@ -90,10 +90,11 @@ signs:
     artifacts: checksum
     output: true
 
-# SLSA provenance attestation via goreleaser's native support. Requires the
-# release to run under GitHub Actions with `id-token: write` and
-# `attestations: write`; unverified in this environment for the same reason as
-# the signing stanza above.
+# goreleaser OSS v2 has no provenance stanza: SLSA attestation is minted by the
+# actions/attest-build-provenance step in .github/workflows/release.yml, after
+# this config has produced dist/. That step needs `id-token: write` and
+# `attestations: write` on the release job. Unverified in this environment for
+# the same reason as the signing stanza above.
 release:
   github:
     owner: OxCom

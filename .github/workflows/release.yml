@@ -1,0 +1,101 @@
+name: release
+
+# A release is cut only by pushing a tag. A branch push must never publish
+# artifacts, so there is no `branches:` trigger here: ci.yml covers every push,
+# this workflow covers only the tags. workflow_dispatch exists to re-run a
+# release that failed after the tag already existed; dispatching it from a
+# branch with no tag reachable will fail in goreleaser, which is the intended
+# outcome rather than a silent partial release.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Default to read-only for every job. The write permissions a release needs are
+# granted on the one job that needs them, so a compromised dependency in an
+# earlier stage cannot create a release or mint an OIDC token.
+permissions:
+  contents: read
+
+# The same five-stage pipeline ci.yml runs — security, tests, compile, smoke —
+# with the release stage on top. The stage workflows are shared files, not
+# copies, so a check cannot drift between the pull-request path and the release
+# path.
+jobs:
+  security:
+    uses: ./.github/workflows/stage-security.yml
+
+  tests:
+    needs: security
+    uses: ./.github/workflows/stage-tests.yml
+
+  compile:
+    needs: tests
+    uses: ./.github/workflows/stage-compile.yml
+
+  # A release always runs the vendor half of the smoke stage: the pinned CLI
+  # versions are part of what this artifact claims to support, so a pin that no
+  # longer installs must stop the release. It still spends no vendor credits.
+  smoke:
+    needs: compile
+    uses: ./.github/workflows/stage-smoke.yml
+    with:
+      vendor_clis: true
+
+  # The release publishes six archives. The two Windows ones are UNSUPPORTED
+  # PREVIEWS until the Windows port lands (roadmap phase 5a): they are built and
+  # unit-tested, and .goreleaser.yaml marks them in both the archive name and
+  # the release notes. They are published anyway so the platform seams cannot
+  # rot while the port is deferred.
+  #
+  # There is deliberately no cross-build step here. goreleaser's own `builds:`
+  # stanza compiles all six targets (linux/darwin/windows x amd64/arm64, the
+  # same list as the Makefile `cross` target and as the compile stage above),
+  # and its `before.hooks` run `go mod tidy` and `go vet` first.
+  release:
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      # Create the GitHub release and upload its archives, checksums and SBOMs.
+      contents: write
+      # Keyless cosign: the OIDC token is the signing identity, so no long-lived
+      # private key ever exists in repository secrets.
+      id-token: write
+      # Build provenance attestations tied to the same OIDC identity.
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # goreleaser derives the version and the previous-tag range from git
+          # history; a shallow clone has neither.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      # The `sboms:` stanza shells out to syft per archive; without it on PATH
+      # the release fails after the binaries are already built.
+      - uses: anchore/sbom-action/download-syft@v0
+      # The `signs:` stanza shells out to cosign. Only checksums.txt is signed:
+      # every archive and SBOM is listed there with its sha256, so one signature
+      # covers all of them transitively and there is one artifact to verify.
+      - uses: sigstore/cosign-installer@v3
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          # The automatic token is the only credential this workflow needs. No
+          # signing key, no registry login, no personal access token.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # SLSA build provenance (roadmap phase 6.2). goreleaser OSS v2 has no
+      # attestation stanza of its own, so this is what actually mints one: it
+      # binds each published archive and the checksum file to this workflow run
+      # and this repository, under the same OIDC identity cosign signs with.
+      # Verify with: gh attestation verify <archive> --repo OxCom/agents-mcp-bridge
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

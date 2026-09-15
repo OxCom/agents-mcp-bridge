@@ -14,7 +14,7 @@ verification steps).
 - MCP server over stdio (`bridge serve --host <claude|codex>`) exposing `ask_<agent>`,
   `await_agent`, `steer_agent`, `cancel_agent` and `list_runs`; none of these tools can
   alter policy (Phase 0–1).
-- Config loader with JSON Schema validation (`schema/config.schema.json`) plus 20
+- Config loader with JSON Schema validation (`schema/config.schema.json`) plus 21
   semantic rules not expressible in JSON Schema (`internal/config/semantics.go`), enforced
   as load errors, never warnings.
 - Platform abstraction (`internal/platform`) behind four interfaces — `Paths`,
@@ -72,17 +72,31 @@ verification steps).
   `bridge enable/disable/status/runs/stop` over the control socket; concurrency,
   wall-clock, max-turns, steer-cap and output-cap limits; `bridge doctor` full check set;
   a schema-review test asserting no MCP tool carries a policy field.
-- CI matrix (`.github/workflows/ci.yml`) building all six release targets
-  (`linux/darwin/windows` × `amd64/arm64`) from the first commit, so the platform seams
-  cannot rot while the Windows port (Phase 5a) is deferred; `gosec` and `govulncheck`
-  scans; a `spec-consistency` job that loads every complete YAML example in the docs
-  through the real config loader.
+- CI building all six release targets (`linux/darwin/windows` × `amd64/arm64`) from the
+  first commit, so the platform seams cannot rot while the Windows port (Phase 5a) is
+  deferred. These checks now live in the staged pipeline described below.
 - Gated conformance suite (`BRIDGE_CONFORMANCE=1 go test ./conformance/`) invoking real
   `claude`/`codex` CLIs — nightly and manual-dispatch only, never on a pull request from a
   fork. Not run by default; SECURITY.md's enforced/declared distinction applies to
   everything this suite would exercise.
 - Gated git-worktree tests (`BRIDGE_GIT_TESTS=1 go test ./internal/worktree/`), also not
   run by default.
+- Staged CI/release pipeline (`.github/workflows/`): one ordered chain — security → tests →
+  compile → smoke → release — with the jobs inside each stage running in parallel and the
+  stages gated by `needs:`. The four shared stages are reusable `workflow_call` workflows
+  (`stage-security.yml`, `stage-tests.yml`, `stage-compile.yml`, `stage-smoke.yml`) called by
+  both `ci.yml` and `release.yml`, so a tag cannot take a shortcut past a check a pull
+  request has to pass. Security runs TruffleHog and Gitleaks (secret scanning), govulncheck
+  (reachable-dependency audit) and gosec; tests run golangci-lint, a gofmt gate and the race
+  suite on Linux and macOS; compile builds all six release targets; smoke boots the binary
+  and runs `bridge doctor` on both operating systems, loads every documented config example,
+  and — on a schedule or a release — installs the pinned vendor CLIs (`claude` 2.1.272,
+  `codex-cli` 0.154.0) and asserts the binaries report those versions (Phase 6.4).
+- Release workflow (`.github/workflows/release.yml`, Phase 6.2): tag-gated (`v*`), running the
+  same four stages before `goreleaser release --clean` for the six targets, with `syft` SBOMs
+  per archive, keyless `cosign` signing of `checksums.txt` over GitHub OIDC, and SLSA build
+  provenance via `actions/attest-build-provenance`. Write permissions are granted per job,
+  never globally; `GITHUB_TOKEN` is the only credential.
 
 ### Known limitations
 
@@ -92,5 +106,8 @@ verification steps).
 - Interactive mode is Claude Code only, and its end-to-end behaviour against a real
   vendor CLI is *declared*, not *enforced* — see `SECURITY.md` and the Phase 3 status
   note above.
-- No tagged release, no signed binaries, no SBOM or provenance attestation yet (Phase 6,
-  in progress alongside this changelog).
+- No tagged release yet. The release pipeline is configured end to end but has never been
+  executed: no tag exists, and `goreleaser`, `cosign` and `syft` were not available in the
+  environment where it was written, so the signing, SBOM and provenance steps are
+  *declared*, not *enforced*. The repository also has no `LICENSE` file, so
+  `.goreleaser.yaml`'s `LICENSE*` archive glob currently matches nothing.

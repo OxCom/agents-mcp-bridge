@@ -73,6 +73,9 @@ type askOutput struct {
 	// channel for it. A second, unmarked copy in structured output would be
 	// a channel where the envelope's marking is absent by construction.
 	SessionHandle string `json:"session_handle,omitempty"`
+	// SupersededBy is the successor run's id, set only when State is
+	// "superseded": this run was continued, and its result now lives there.
+	SupersededBy string `json:"superseded_by,omitempty"`
 }
 
 type awaitInput struct {
@@ -112,9 +115,11 @@ func registerTools(s *mcp.Server, b *bridge) {
 		Description: "Collect the result of a run started by ask_*. Blocks up to timeout_s " +
 			"and is safe to call repeatedly: a \"running\" result is normal, not an error. " +
 			"Every run you start must be awaited or cancelled. A needs_input result means the " +
-			"run has stopped: report the enveloped question to a human — this release cannot " +
-			"resume the run afterwards. session_handle identifies the stopped run for your own " +
-			"reference, not a way to continue it.",
+			"run has stopped: report the enveloped question to a human — only the operator can " +
+			"continue it from here, and you cannot trigger that yourself. session_handle " +
+			"identifies the stopped run for your own reference, not a way to continue it. If the " +
+			"operator does continue it, a later call reports state \"superseded\" with the new " +
+			"run's id: await_agent on that id instead.",
 	}, b.awaitAgent)
 
 	// Agent-originated steering is opt-in: an agent that can redirect another
@@ -199,7 +204,7 @@ func (b *bridge) makeAsk(agentID string) func(context.Context, *mcp.CallToolRequ
 			return nil, askOutput{}, err
 		}
 
-		spec, err := b.buildSpec(decision, in.Prompt)
+		spec, err := b.buildSpec(decision, in.Prompt, nil)
 		if err != nil {
 			b.recordRefusal(agentID, err)
 			return nil, askOutput{}, err
@@ -253,7 +258,33 @@ func (b *bridge) makeAsk(agentID string) func(context.Context, *mcp.CallToolRequ
 	}
 }
 
-func (b *bridge) buildSpec(d *policy.Decision, prompt string) (run.Spec, error) {
+// continuationSeed marks a Spec under construction as a continuation's
+// successor. argvPrompt (buildSpec's prompt parameter) carries the seed text
+// actually sent to the adapter; the fields below seed the ContinuationRecord
+// attached to the NEW run so it can itself be continued again, carrying the
+// chain's original prompt forward unchanged rather than the seed text.
+type continuationSeed struct {
+	ResumedFrom string // the predecessor's run id
+	OrigPrompt  string // the chain's original prompt, unchanged across links
+	Turns       []run.QATurn
+	Depth       int // the successor's own depth: predecessor's Depth+1
+	// PredWorktree is the predecessor's worktree, for a confined write
+	// chain — worktree.ContinueFrom hands it forward instead of cutting a
+	// fresh worktree from HEAD. Nil for a read-only chain.
+	PredWorktree *worktree.Worktree
+}
+
+// buildSpec resolves an authorised decision into a run.Spec. cont is nil for
+// an ordinary ask_* call; non-nil for a continuation's successor, in which
+// case argvPrompt is the reconstructed seed (spec §5) rather than a fresh
+// caller prompt, and the worktree — if the chain is a confined write one — is
+// handed forward from the predecessor rather than cut from HEAD.
+//
+// Every Spec built here (fresh or continued) carries its own Continuation
+// record: this is what lets ANY run be continued later if it stops on
+// needs_input, not just one that already survived one continuation.
+func (b *bridge) buildSpec(d *policy.Decision, argvPrompt string, cont *continuationSeed) (run.Spec, error) {
+	prompt := argvPrompt // the text actually sent to the adapter; see continuationSeed's doc comment
 	a := d.Adapter
 	if a.Invoke == nil {
 		// Unreachable: the loader refuses an adapter with no invoke block. If it
@@ -355,19 +386,48 @@ func (b *bridge) buildSpec(d *policy.Decision, prompt string) (run.Spec, error) 
 	}
 
 	// A confined write run does not touch the caller's tree: it runs in a
-	// disposable worktree cut from HEAD, and its diff waits for a decision.
+	// disposable worktree cut from HEAD (or, for a continuation, handed
+	// forward from the predecessor), and its diff waits for a decision.
 	if d.Mode == config.ModeWrite && d.Confined {
-		wt, err := worktree.Create(d.CWD, b.stateDir, runID)
+		var wt *worktree.Worktree
+		var err error
+		if cont != nil {
+			wt, err = worktree.ContinueFrom(cont.PredWorktree, b.stateDir, runID)
+		} else {
+			wt, err = worktree.Create(d.CWD, b.stateDir, runID)
+		}
 		if err != nil {
 			if errors.Is(err, worktree.ErrNotARepository) {
 				return run.Spec{}, fmt.Errorf("a confined write run needs a git repository; " +
 					"there is no fallback that writes directly")
 			}
-			return run.Spec{}, fmt.Errorf("could not prepare an isolated workspace")
+			return run.Spec{}, fmt.Errorf("could not prepare an isolated workspace: %w", err)
 		}
 		spec.CWD = wt.Dir
 		spec.Worktree = wt
 	}
+
+	// Every run — fresh or continued — carries its own ContinuationRecord, so
+	// it can itself be continued later if it stops on needs_input. The
+	// record's Prompt is the chain's ORIGINAL prompt, never the reconstructed
+	// seed: a later continuation must always seed from the true original, not
+	// a nested chain of preambles (spec §5).
+	origPrompt, turns, depth := prompt, []run.QATurn(nil), 0
+	if cont != nil {
+		origPrompt, turns, depth = cont.OrigPrompt, cont.Turns, cont.Depth
+		spec.ResumedFrom = cont.ResumedFrom
+	}
+	spec.Continuation = &run.ContinuationRecord{
+		Prompt:           origPrompt,
+		Agent:            a.ID,
+		CWD:              d.CWD,
+		Mode:             string(d.Mode),
+		Confined:         d.Confined,
+		SandboxSelection: string(d.Mode),
+		Turns:            turns,
+		Depth:            depth,
+	}
+
 	succeeded = true
 	return spec, nil
 }
@@ -433,6 +493,16 @@ func (b *bridge) awaitAgent(ctx context.Context, req *mcp.CallToolRequest, in aw
 
 	out := askOutput{RunID: s.ID, State: string(s.State), WatchHint: "bridge watch " + s.ID}
 
+	// superseded is terminal (StateSuperseded.IsTerminal() is true), so a
+	// caller that keeps polling learns where its work went instead of
+	// falling through to the ordinary completion path below, which would
+	// try to collect a worktree that continuation already retired.
+	if s.State == run.StateSuperseded {
+		out.SupersededBy = s.SupersededBy
+		return textResult("run %s was continued as %s; its result now lives there — call "+
+			"await_agent on %s instead", s.ID, s.SupersededBy, s.SupersededBy), out, nil
+	}
+
 	// needs_input is neither finished nor running: the child is gone and the
 	// state is settled, but non-terminal so the run stays visible to the
 	// operator (`bridge runs`) rather than pruned like a finished one. There
@@ -455,7 +525,7 @@ func (b *bridge) awaitAgent(ctx context.Context, req *mcp.CallToolRequest, in aw
 
 		text := s.Failure
 		if s.Question != nil {
-			text = s.Question.Text
+			text = questionBody(*s.Question)
 		}
 		// The run id IS session_handle today, but it identifies a stopped run
 		// for the operator's own tooling (audit trail, `bridge runs`), not a
@@ -632,6 +702,19 @@ func (b *bridge) elicit(runID string) func(context.Context, run.Question) (strin
 // quoted region actually ends, and its own opening tag carries agentID and
 // runID as attributes rather than free text, so nothing inside q.Text can
 // forge them.
+// questionBody renders a delegated agent's question for the caller: its text,
+// and the options it offered when it offered any. A vendor question routinely
+// carries the choices in the options field and nothing but a bare prompt in
+// the text ("What should I name the file?"), so returning the text alone hands
+// the caller a question it cannot answer. Both halves are agent-authored, so
+// this string goes inside the untrusted-data envelope, never outside it.
+func questionBody(q run.Question) string {
+	if len(q.Options) == 0 {
+		return q.Text
+	}
+	return q.Text + "\n\nOptions offered by the agent:\n- " + strings.Join(q.Options, "\n- ")
+}
+
 func elicitMessage(agentID, runID, text string, maxOutputBytes int) string {
 	return sanitize.Envelope(agentID, runID, text, maxOutputBytes).Text
 }
@@ -707,6 +790,9 @@ type runSummary struct {
 	State    string `json:"state"`
 	Duration string `json:"duration"`
 	Awaited  bool   `json:"awaited"`
+	// SupersededBy is the successor run's id once this run has been
+	// continued. Empty otherwise.
+	SupersededBy string `json:"superseded_by,omitempty"`
 }
 
 func (b *bridge) listRuns(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listOutput, error) {
@@ -717,13 +803,18 @@ func (b *bridge) listRuns(ctx context.Context, req *mcp.CallToolRequest, _ struc
 	var lines []string
 	for _, s := range snaps {
 		out.Runs = append(out.Runs, runSummary{
-			RunID:    s.ID,
-			Agent:    s.Agent,
-			State:    string(s.State),
-			Duration: s.Duration.Round(time.Millisecond).String(),
-			Awaited:  s.Awaited,
+			RunID:        s.ID,
+			Agent:        s.Agent,
+			State:        string(s.State),
+			Duration:     s.Duration.Round(time.Millisecond).String(),
+			Awaited:      s.Awaited,
+			SupersededBy: s.SupersededBy,
 		})
-		lines = append(lines, fmt.Sprintf("%s  %-10s %-10s %s", s.ID, s.Agent, s.State, s.Duration.Round(time.Second)))
+		line := fmt.Sprintf("%s  %-10s %-10s %s", s.ID, s.Agent, s.State, s.Duration.Round(time.Second))
+		if s.SupersededBy != "" {
+			line += "  -> " + s.SupersededBy
+		}
+		lines = append(lines, line)
 	}
 	if len(lines) == 0 {
 		lines = append(lines, "no runs")

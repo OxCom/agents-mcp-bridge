@@ -27,7 +27,7 @@ func TestAttachToRunCarriesTheRunID(t *testing.T) {
 	b, _ := newTestBridge(t, "/bin/sleep", []string{"30"})
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	srv, err := control.Listen(t.TempDir(), platform.NewControlEndpoint(), b, b.log)
+	srv, err := control.Listen(shortTempDir(t), platform.NewControlEndpoint(), b, b.log)
 	if err != nil {
 		t.Fatalf("control.Listen: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestAttachToRunCarriesTheRunID(t *testing.T) {
 // isolated to a per-test XDG_RUNTIME_DIR so it never touches this machine's
 // actual bridge servers.
 func TestRunsCommandListsLiveRuns(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", shortTempDir(t))
 
 	b, _ := newTestBridge(t, "/bin/sleep", []string{"5"})
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))

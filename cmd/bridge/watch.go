@@ -183,8 +183,12 @@ func printRuns(runs []located) {
 		if !r.info.Sandboxed {
 			warnings += " UNSANDBOXED"
 		}
+		state := r.info.State
+		if r.info.SupersededBy != "" {
+			state += " -> " + r.info.SupersededBy
+		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s%s\t%s\n",
-			r.info.RunID, r.host, r.info.Agent, r.info.State, r.info.Mode, warnings, age)
+			r.info.RunID, r.host, r.info.Agent, state, r.info.Mode, warnings, age)
 	}
 	_ = w.Flush()
 }

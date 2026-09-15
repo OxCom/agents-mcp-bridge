@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/oxcom/agents-mcp-bridge/internal/gate"
@@ -24,11 +25,35 @@ func runGate(args []string) error {
 		return errors.New("bridge gate is spawned by a bridge run, not by hand")
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "bridge_gate", Version: version}, nil)
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "ask",
-		Description: "Permission and question sink for a supervised delegated run.",
-	}, gateHandler)
+	mcp.AddTool(s, gateTool, gateHandler)
 	return s.Run(context.Background(), &mcp.StdioTransport{})
+}
+
+// gateTool carries an explicit input schema rather than one inferred from
+// gateInput. Inference described `input` — a json.RawMessage, i.e. []byte — as
+// an array of integers 0..255, and a vendor MCP client validates a tools/call
+// against the advertised schema before sending it: a real claude child's
+// AskUserQuestion payload, whose `input` is the delegated tool's own arguments
+// object (spike C7), was refused on its own side and never reached the gate.
+// The run then completed with no question at all.
+var gateTool = &mcp.Tool{
+	Name:        "ask",
+	Description: "Permission and question sink for a supervised delegated run.",
+	InputSchema: &jsonschema.Schema{
+		Type: "object",
+		Properties: map[string]*jsonschema.Schema{
+			"tool_name":   {Type: "string"},
+			"tool_use_id": {Type: "string"},
+			// The delegated tool's arguments, whatever shape that tool takes.
+			// No constraint is asserted here: the gate treats this as opaque
+			// untrusted data and only ever reads it for display.
+			"input": {Type: "object"},
+		},
+		// tool_use_id is absent from some vendor payloads, and a question that
+		// arrives without one must still reach the operator rather than being
+		// refused by a schema.
+		Required: []string{"tool_name", "input"},
+	},
 }
 
 type gateInput struct {

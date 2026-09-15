@@ -64,6 +64,7 @@ func (b *bridge) Runs() []control.RunInfo {
 			info.QuestionText = s.Question.Text
 			info.QuestionOptions = s.Question.Options
 		}
+		info.SupersededBy = s.SupersededBy
 		out = append(out, info)
 	}
 	return out
@@ -80,6 +81,14 @@ func (b *bridge) Stop(runID string) error {
 
 // Accept applies a confined write run's diff, from the operator's side.
 func (b *bridge) Accept(runID string) error {
+	if r, err := b.runs.Get(runID); err == nil {
+		// Same guard as getChanges/acceptChanges: refusing a superseded
+		// chain link is a property of the state machine, not of
+		// changeStore.discard having already run (wave-4 review, Important).
+		if s := r.Snapshot(); s.State == run.StateSuperseded {
+			return &SupersededError{RunID: s.ID, SuccessorID: s.SupersededBy}
+		}
+	}
 	p, ok := b.changes.get(runID)
 	if !ok {
 		return fmt.Errorf("no pending changes for run %s", runID)
@@ -136,6 +145,14 @@ func (b *bridge) Answer(runID, questionID, text string) error {
 		return fmt.Errorf("no such run")
 	}
 	return r.AnswerQuestion(questionID, text)
+}
+
+// Continue creates a continuation successor for a run resting in needs_input.
+// See cmd/bridge/continuation.go for the seed construction and the
+// predecessor-retirement transaction
+// (docs/superpowers/specs/2026-09-15-continuation-design.md).
+func (b *bridge) Continue(runID, text string) (string, error) {
+	return b.continueRun(runID, text)
 }
 
 // SetFeature narrows or restores a feature on this live server.

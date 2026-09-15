@@ -40,7 +40,7 @@ func dialAndSend(t *testing.T, socket string, a Ask) Reply {
 
 func TestGateForwardsAValidAskAndReturnsTheVerdict(t *testing.T) {
 	f := &fakeResolver{}
-	s, err := Listen(t.TempDir(), "run-1", "tok-1", platform.NewControlEndpoint(), f, slog.Default())
+	s, err := Listen(shortTempDir(t), "run-1", "tok-1", platform.NewControlEndpoint(), f, slog.Default())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestGateForwardsAValidAskAndReturnsTheVerdict(t *testing.T) {
 
 func TestGateRefusesAWrongToken(t *testing.T) {
 	f := &fakeResolver{}
-	s, err := Listen(t.TempDir(), "run-1", "tok-1", platform.NewControlEndpoint(), f, slog.Default())
+	s, err := Listen(shortTempDir(t), "run-1", "tok-1", platform.NewControlEndpoint(), f, slog.Default())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestGateRefusesAWrongToken(t *testing.T) {
 }
 
 func TestGateSocketIsOwnerOnly(t *testing.T) {
-	s, err := Listen(t.TempDir(), "run-1", "tok-1", platform.NewControlEndpoint(), &fakeResolver{}, slog.Default())
+	s, err := Listen(shortTempDir(t), "run-1", "tok-1", platform.NewControlEndpoint(), &fakeResolver{}, slog.Default())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestGateSocketIsOwnerOnly(t *testing.T) {
 // also handed a pointer into the directory listing every live bridge's
 // operator control socket.
 func TestGateSocketIsNotASiblingOfTheOperatorIndex(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTempDir(t)
 	// Mirror what internal/control.Listen writes at the top of the runtime
 	// dir, without importing internal/control (which would create a rightward
 	// dependency out of gate's declared order).
@@ -134,7 +134,7 @@ func TestGateSocketPathTooLongIsAnErrorNotAPanic(t *testing.T) {
 
 func TestGateDeniesAWrongRunID(t *testing.T) {
 	f := &fakeResolver{}
-	s, err := Listen(t.TempDir(), "run-1", "tok-1", platform.NewControlEndpoint(), f, slog.Default())
+	s, err := Listen(shortTempDir(t), "run-1", "tok-1", platform.NewControlEndpoint(), f, slog.Default())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestGateDeniesAWrongRunID(t *testing.T) {
 // instead of sleeping for the real 10s value or mutating the field on an
 // already-running server (which would itself race with the accept goroutine).
 func TestGateClosesAnIdleConnection(t *testing.T) {
-	s, err := listen(t.TempDir(), "run-1", "tok-1", platform.NewControlEndpoint(), &fakeResolver{}, slog.Default(), 50*time.Millisecond, defaultReplyWriteTimeout)
+	s, err := listen(shortTempDir(t), "run-1", "tok-1", platform.NewControlEndpoint(), &fakeResolver{}, slog.Default(), 50*time.Millisecond, defaultReplyWriteTimeout)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestGateClosesAnIdleConnection(t *testing.T) {
 // requestMaxBytes is refused before the resolver is ever invoked.
 func TestGateRefusesOversizedRequest(t *testing.T) {
 	f := &fakeResolver{}
-	s, err := Listen(t.TempDir(), "run-1", "tok-1", platform.NewControlEndpoint(), f, slog.Default())
+	s, err := Listen(shortTempDir(t), "run-1", "tok-1", platform.NewControlEndpoint(), f, slog.Default())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestGateCapsConcurrentConnections(t *testing.T) {
 	// are closed by this test well within the default deadline, and
 	// mutating the shared package var while their goroutines are still
 	// starting up would itself be a data race.
-	s, err := Listen(t.TempDir(), "run-1", "tok-1", platform.NewControlEndpoint(), &fakeResolver{}, slog.Default())
+	s, err := Listen(shortTempDir(t), "run-1", "tok-1", platform.NewControlEndpoint(), &fakeResolver{}, slog.Default())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}

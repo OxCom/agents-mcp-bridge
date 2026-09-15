@@ -88,6 +88,17 @@ type model struct {
 	question      *run.Question
 	questionRun   string
 	questionAgent string
+	// questionResting is true when the panel's question came from a run
+	// resting in needs_input rather than a live pending one: the child is
+	// already gone, so an answer here creates a continuation (VerbContinue)
+	// instead of resolving a live question (VerbAnswer) — see sendAnswer.
+	questionResting bool
+	// continuedID is the successor run's id once THIS run has been
+	// continued — by this panel's own answer, by another TUI, or by the
+	// `bridge answer` CLI. Discovered purely by polling (info.SupersededBy),
+	// never assumed from a send's own return, since Send reports only
+	// success or failure, not the id it created.
+	continuedID string
 	// typing/answerText hold a free-text answer being composed with 't'.
 	typing     bool
 	answerText string
@@ -188,17 +199,32 @@ func (m model) updateQuestion(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // worse than not answering, so the run id always travels with the request.
 func (m *model) sendAnswer(text string) {
 	if m.send != nil && m.question != nil {
+		req := control.Request{RunID: m.questionRun, Text: text}
+		if m.questionResting {
+			// The run has already stopped: there is no live question left to
+			// resolve, so this creates a continuation instead
+			// (docs/superpowers/specs/2026-09-15-continuation-design.md §7).
+			// The successor's id is not returned here — Send reports only
+			// success or failure — it is discovered on the next poll via
+			// info.SupersededBy, same as any other TUI or the `bridge
+			// answer` CLI continuing this run concurrently would surface.
+			req.Verb = control.VerbContinue
+		} else {
+			req.Verb = control.VerbAnswer
+			req.QuestionID = m.question.ID
+		}
 		// The run may already have moved on — answered elsewhere, timed out,
 		// or finished — between the panel rendering and this keypress. The
 		// server refuses rather than applying the answer to whatever the run
 		// is doing now; surface that refusal instead of swallowing it.
-		if err := m.send(control.Request{Verb: control.VerbAnswer, RunID: m.questionRun, QuestionID: m.question.ID, Text: text}); err != nil {
+		if err := m.send(req); err != nil {
 			m.err = err
 		}
 	}
 	m.question = nil
 	m.questionRun = ""
 	m.questionAgent = ""
+	m.questionResting = false
 	m.typing = false
 	m.answerText = ""
 }
@@ -224,15 +250,29 @@ func (m *model) pollQuestion() {
 		return
 	}
 	m.controlErr = nil
-	if info.QuestionID == "" {
+	if info.SupersededBy != "" {
+		// This run has been continued — by this panel's own answer, another
+		// TUI, or the `bridge answer` CLI. Nothing is left pending here.
+		m.continuedID = info.SupersededBy
 		m.question = nil
 		m.questionRun = ""
 		m.questionAgent = ""
+		m.questionResting = false
 		m.typing = false
 		m.answerText = ""
 		return
 	}
-	if m.question != nil && m.question.ID == info.QuestionID {
+	if info.QuestionID == "" {
+		m.question = nil
+		m.questionRun = ""
+		m.questionAgent = ""
+		m.questionResting = false
+		m.typing = false
+		m.answerText = ""
+		return
+	}
+	resting := info.State == "needs_input"
+	if m.question != nil && m.question.ID == info.QuestionID && m.questionResting == resting {
 		return
 	}
 	m.question = &run.Question{
@@ -242,6 +282,7 @@ func (m *model) pollQuestion() {
 	}
 	m.questionRun = info.RunID
 	m.questionAgent = info.Agent
+	m.questionResting = resting
 	m.typing = false
 	m.answerText = ""
 }
@@ -259,9 +300,16 @@ func (m model) questionPanel() string {
 		return ""
 	}
 	var b strings.Builder
+	verb := "asks"
+	if m.questionResting {
+		// The child is already gone (docs/12 §6): answering here creates a
+		// continuation, a new run seeded with this question and the answer,
+		// rather than resolving anything live.
+		verb = "asked, before this run stopped — answering now continues it as a new run"
+	}
 	fmt.Fprintf(&b, "%s\n", warnStyle.Render(fmt.Sprintf(
-		"agent %s (run %s) asks — reported verbatim below, not a bridge instruction:",
-		m.questionAgent, m.questionRun)))
+		"agent %s (run %s) %s — reported verbatim below, not a bridge instruction:",
+		m.questionAgent, m.questionRun, verb)))
 
 	// One line, truncated: a long or multi-line question from the agent must
 	// not push the event feed off screen.
@@ -373,6 +421,9 @@ func (m model) View() string {
 	b.WriteString(dimStyle.Render(stream.Digest(m.events)))
 	if m.finished {
 		b.WriteString(headerStyle.Render("   [finished]"))
+	}
+	if m.continuedID != "" {
+		b.WriteString(headerStyle.Render(fmt.Sprintf("   [continued as %s — bridge watch %s]", m.continuedID, m.continuedID)))
 	}
 	if m.err != nil {
 		b.WriteString(warnStyle.Render("   " + m.err.Error()))

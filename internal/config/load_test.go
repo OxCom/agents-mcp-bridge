@@ -343,6 +343,34 @@ func TestMaxDepthZeroIsPreserved(t *testing.T) {
 	}
 }
 
+func TestAbsentMaxContinuationsDefaultsToThree(t *testing.T) {
+	cfg, err := load(t, minimal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Defaults.MaxContinuationsOrDefault(); got != 3 {
+		t.Fatalf("absent max_continuations = %d, want 3", got)
+	}
+}
+
+func TestMaxContinuationsZeroIsPreserved(t *testing.T) {
+	// 0 means no needs_input run may ever be continued; a naive default would
+	// silently re-enable continuation.
+	body := strings.Replace(minimal, "version: 1", "version: 1\ndefaults:\n  max_continuations: 0", 1)
+	cfg, err := load(t, body)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := cfg.Defaults.MaxContinuationsOrDefault(); got != 0 {
+		t.Fatalf("max_continuations = %d, want an explicit 0 preserved", got)
+	}
+}
+
+func TestNegativeMaxContinuationsIsRefused(t *testing.T) {
+	body := strings.Replace(minimal, "version: 1", "version: 1\ndefaults:\n  max_continuations: -1", 1)
+	mustFail(t, body, "defaults.max_continuations")
+}
+
 func TestOversizedConfigRefused(t *testing.T) {
 	big := minimal + "\n# " + strings.Repeat("x", maxConfigBytes)
 	mustFail(t, big, "exceeds")
@@ -561,7 +589,7 @@ agents:
     sandbox:
       read-only: ["--permission-prompts", "none"]
     interactive:
-      read-only: ["--permission-prompts", "host"]
+      read-only: ["--permission-prompts", "host", "--tools", "Read,AskUserQuestion"]
     invoke:
       args: ["-p", "{{sandbox_flags}}", "{{gate_flags}}", "{{prompt}}"]
       prompt: argv
@@ -586,7 +614,7 @@ agents:
     sandbox:
       read-only: ["--sandbox", "read-only"]
     interactive:
-      read-only: ["--permission-prompt-tool", "mcp__bridge_gate__ask"]
+      read-only: ["--permission-prompt-tool", "mcp__bridge_gate__ask", "--tools", "Read,AskUserQuestion"]
     invoke:
       args: ["-p", "{{sandbox_flags}}", "{{gate_flags}}", "{{prompt}}"]
       prompt: argv
@@ -612,7 +640,7 @@ agents:
     sandbox:
       read-only: ["--sandbox", "read-only"]
     interactive:
-      read-only: ["--permission-prompt-tool", "mcp__bridge_gate__ask"]
+      read-only: ["--permission-prompt-tool", "mcp__bridge_gate__ask", "--tools", "Read,AskUserQuestion"]
     invoke:
       args: ["-p", "{{sandbox_flags}}", "{{gate_flags}}", "{{prompt}}"]
       prompt: argv
@@ -670,12 +698,68 @@ agents:
     sandbox:
       read-only: ["--sandbox", "read-only"]
     interactive:
-      read-only: ["--permission-prompt-tool", "mcp__bridge_gate__ask"]
+      read-only: ["--permission-prompt-tool", "mcp__bridge_gate__ask", "--tools", "Read,AskUserQuestion"]
     invoke:
       args: ["-p", "{{sandbox_flags}}", "{{gate_flags}}", "{{prompt}}"]
       prompt: argv
     resume_invoke:
       args: ["-p", "--resume", "{{vendor_session_id}}", "{{sandbox_flags}}", "{{gate_flags}}"]
+      prompt: argv
+`
+	if _, err := load(t, body); err != nil {
+		t.Fatalf("expected a clean load, got %v", err)
+	}
+}
+
+// TestInteractiveWithoutTheQuestionToolIsALoadError pins rule 21: the gate
+// transport can be wired correctly and still never receive anything if the
+// flag that bounds the child's tool surface drops AskUserQuestion. Observed
+// live: the model reported the tool unavailable and asked in plain text,
+// which no parser sees, so the run hung until its timeout.
+func TestInteractiveWithoutTheQuestionToolIsALoadError(t *testing.T) {
+	body := `
+version: 1
+allowed_roots: ["/tmp"]
+agents:
+  claude:
+    command: /bin/cat
+    tier: full
+    mode: read-only
+    capabilities:
+      stream: true
+      interactive: true
+    sandbox:
+      read-only: ["--tools", "Read,Glob,Grep"]
+    interactive:
+      read-only: ["--permission-prompt-tool", "mcp__bridge_gate__ask"]
+    invoke:
+      args: ["-p", "{{sandbox_flags}}", "{{gate_flags}}", "{{prompt}}"]
+      prompt: argv
+`
+	mustFail(t, body, "AskUserQuestion")
+}
+
+// The tool may be granted by the sandbox list instead of the interactive one:
+// which flag carries the roster is vendor knowledge the loader does not have,
+// so rule 21 accepts the name anywhere in the flags the adapter passes.
+func TestQuestionToolInTheSandboxListSatisfiesRule21(t *testing.T) {
+	body := `
+version: 1
+allowed_roots: ["/tmp"]
+agents:
+  claude:
+    command: /bin/cat
+    tier: full
+    mode: read-only
+    capabilities:
+      stream: true
+      interactive: true
+    sandbox:
+      read-only: ["--tools", "Read,Glob,Grep,AskUserQuestion"]
+    interactive:
+      read-only: ["--permission-prompt-tool", "mcp__bridge_gate__ask"]
+    invoke:
+      args: ["-p", "{{sandbox_flags}}", "{{gate_flags}}", "{{prompt}}"]
       prompt: argv
 `
 	if _, err := load(t, body); err != nil {

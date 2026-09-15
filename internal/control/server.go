@@ -26,6 +26,10 @@ type Handler interface {
 	// match the question currently pending on runID or the answer is
 	// refused — see run.Run.AnswerQuestion.
 	Answer(runID, questionID, text string) error
+	// Continue creates a continuation successor for a run resting in
+	// needs_input, seeded with text as the operator's answer, and returns
+	// the new run's id.
+	Continue(runID, text string) (string, error)
 	SetFeature(feature string, on bool) error
 }
 
@@ -225,6 +229,15 @@ func (s *Server) dispatch(req Request, ws *watchState) Response {
 			return Response{Error: err.Error()}
 		}
 		return Response{OK: true}
+	case VerbContinue:
+		if req.RunID == "" || req.Text == "" {
+			return Response{Error: "continue needs a run_id and text"}
+		}
+		successorID, err := s.handler.Continue(req.RunID, req.Text)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{OK: true, SuccessorID: successorID}
 	case VerbEnable, VerbDisable:
 		if req.Feature == "" {
 			return Response{Error: req.Verb + " needs a feature"}

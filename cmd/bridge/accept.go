@@ -35,7 +35,11 @@ func runSteerCmd(args []string) error {
 	return controlVerbText(control.VerbSteer, args[0], strings.Join(args[1:], " "), "steered")
 }
 
-// runAnswerCmd answers a question the agent is waiting on.
+// runAnswerCmd answers a question the agent is waiting on, or — if the run
+// has already stopped in needs_input — creates a continuation instead
+// (docs/superpowers/specs/2026-09-15-continuation-design.md §7). Operator
+// only: this command's control-channel verbs (VerbAnswer, VerbContinue) are
+// never reachable from the MCP surface a delegated agent holds.
 //
 // It resolves the run's currently pending question id itself, rather than
 // sending an empty one, before answering. An empty QuestionID means "answer
@@ -54,12 +58,14 @@ func runAnswerCmd(args []string) error {
 	return answerRun(args[0], strings.Join(args[1:], " "))
 }
 
-// answerRun finds the live server that owns runID, reads its currently
-// pending question id, and answers with that id bound in. The lookup and the
-// answer are two round trips, so a question can in principle change between
-// them — exactly the same window run.Run.AnswerQuestion's id check exists to
-// close: a stale id is refused with ErrQuestionChanged rather than
-// misdelivered.
+// answerRun finds the live server that owns runID, and either answers a live
+// question or creates a continuation, depending on what the run reports right
+// now. The lookup and the answer are two round trips, so this can in
+// principle change between them — exactly the same window
+// run.Run.AnswerQuestion's id check exists to close: a stale id is refused
+// with ErrQuestionChanged rather than misdelivered, and a stale needs_input
+// read is refused by TakeContinuation's own state check rather than seeding
+// a continuation from a run that has since moved on.
 func answerRun(runID, text string) error {
 	paths, err := platform.NewPaths()
 	if err != nil {
@@ -81,10 +87,11 @@ func answerRun(runID, text string) error {
 			lastErr = err
 			continue
 		}
-		questionID, owns := "", false
+		var info control.RunInfo
+		owns := false
 		for _, ri := range resp.Runs {
 			if ri.RunID == runID {
-				owns, questionID = true, ri.QuestionID
+				owns, info = true, ri
 				break
 			}
 		}
@@ -92,17 +99,31 @@ func answerRun(runID, text string) error {
 			_ = c.Close()
 			continue
 		}
-		if questionID == "" {
+		// State, not QuestionID, is what distinguishes these: a needs_input
+		// run still reports its last question's id (run.Snapshot retains it
+		// for exactly this read), so checking QuestionID first would route a
+		// stopped run's answer down the live-answer path, which has nothing
+		// left listening for it.
+		if info.State == "needs_input" {
+			resp, err := c.Do(control.Request{Verb: control.VerbContinue, RunID: runID, Text: text})
 			_ = c.Close()
-			return fmt.Errorf("run %s has no question pending to answer", runID)
-		}
-		_, err = c.Do(control.Request{Verb: control.VerbAnswer, RunID: runID, QuestionID: questionID, Text: text})
-		_ = c.Close()
-		if err == nil {
-			fmt.Printf("answered %s\n", runID)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("run %s continued as %s\n", runID, resp.SuccessorID)
 			return nil
 		}
-		return err
+		if info.QuestionID != "" {
+			_, err = c.Do(control.Request{Verb: control.VerbAnswer, RunID: runID, QuestionID: info.QuestionID, Text: text})
+			_ = c.Close()
+			if err == nil {
+				fmt.Printf("answered %s\n", runID)
+				return nil
+			}
+			return err
+		}
+		_ = c.Close()
+		return fmt.Errorf("run %s has no question pending to answer", runID)
 	}
 	if lastErr != nil {
 		return lastErr

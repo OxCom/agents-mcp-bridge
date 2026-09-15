@@ -10,67 +10,42 @@ on:
 permissions:
   contents: read
 
+# One pipeline, five stages, in this order: security, tests, compile, smoke,
+# release. Each stage is a reusable workflow whose jobs run in parallel; the
+# stages themselves are sequential, so a leaked secret stops the run before
+# anything is compiled and a failing test stops it before anything is published.
+# release.yml calls the same four stage workflows in the same order and adds the
+# release stage on top, so a tag cannot take a shortcut past a check a pull
+# request has to pass.
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          check-latest: true
-      - run: go vet ./...
-      - run: go test -race ./...
+  security:
+    uses: ./.github/workflows/stage-security.yml
 
-  # Every release target must compile from the first commit, so the platform
-  # seams cannot rot while Windows support is deferred to v1.1. Windows is
-  # build-and-unit-test only until the port lands (roadmap phase 5a).
-  build-matrix:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-      - env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: go build ./...
+  tests:
+    needs: security
+    uses: ./.github/workflows/stage-tests.yml
 
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-      - name: gosec
-        run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -exclude-generated ./...
-      - name: govulncheck
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+  compile:
+    needs: tests
+    uses: ./.github/workflows/stage-compile.yml
+
+  # The vendor half of the smoke stage installs the pinned CLIs from npm, so it
+  # runs nightly and on manual dispatch rather than on every push. The rest of
+  # the stage always runs: it needs no network beyond the checkout.
+  smoke:
+    needs: compile
+    uses: ./.github/workflows/stage-smoke.yml
+    with:
+      vendor_clis: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
   # Conformance runs real vendor CLIs, so it needs credentials and spends money.
   # It is nightly and manual only: a pull request from a fork must never be able
   # to trigger it. A flag that is merely accepted proves nothing; these tests
   # assert behaviour, which is the only thing that catches a vendor changing
-  # what a flag means.
+  # what a flag means. It sits after the smoke stage rather than inside it
+  # because it is the one job here that cannot run without secrets.
   conformance:
+    needs: smoke
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: vendor-clis
@@ -81,20 +56,9 @@ jobs:
           go-version: '1.26'
       - name: install vendor CLIs
         run: |
-          npm install -g @anthropic-ai/claude-code @openai/codex
+          npm install -g @anthropic-ai/claude-code@2.1.272 @openai/codex@0.154.0
       - env:
           BRIDGE_CONFORMANCE: '1'
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: go test ./conformance/ -v -timeout 30m
-
-  # The specification and the implementation must not drift: every complete YAML
-  # example in the docs is loaded by the real loader, semantic rules included.
-  spec-consistency:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-      - run: go test ./internal/config/ -run TestDocumentedExamplesLoad -v

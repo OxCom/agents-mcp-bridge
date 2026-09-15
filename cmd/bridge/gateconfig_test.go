@@ -132,7 +132,7 @@ func TestDoubleGateHoldsWhenEitherHalfIsMissing(t *testing.T) {
 			}
 			d := &policy.Decision{Adapter: interactiveAdapter(tc.capable), CWD: t.TempDir(), Mode: config.ModeReadOnly}
 
-			spec, err := b.buildSpec(d, "hello")
+			spec, err := b.buildSpec(d, "hello", nil)
 			if err != nil {
 				t.Fatalf("buildSpec: %v", err)
 			}
@@ -172,13 +172,13 @@ func TestInteractiveRunCarriesNoBridgeSecretsInSpec(t *testing.T) {
 		cfg:        cfg,
 		engine:     testEngine(t, cfg),
 		stateDir:   stateDir,
-		runtimeDir: t.TempDir(),
+		runtimeDir: shortTempDir(t),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		gates:      make(map[string]*gate.Server),
 	}
 	d := &policy.Decision{Adapter: interactiveAdapter(true), CWD: t.TempDir(), Mode: config.ModeReadOnly}
 
-	spec, err := b.buildSpec(d, "hello")
+	spec, err := b.buildSpec(d, "hello", nil)
 	if err != nil {
 		t.Fatalf("buildSpec: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestNeedsInputClosesTheGateAndRemovesItsConfig(t *testing.T) {
 		cfg:        cfg,
 		engine:     testEngine(t, cfg),
 		stateDir:   stateDir,
-		runtimeDir: t.TempDir(),
+		runtimeDir: shortTempDir(t),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		gates:      make(map[string]*gate.Server),
 		runs:       run.NewRegistry(4, time.Hour),
@@ -293,7 +293,7 @@ func TestNeedsInputClosesTheGateAndRemovesItsConfig(t *testing.T) {
 	a.Invoke = &config.Invocation{Args: []string{"30"}, Prompt: "argv"}
 	d := &policy.Decision{Adapter: a, CWD: t.TempDir(), Mode: config.ModeReadOnly}
 
-	spec, err := b.buildSpec(d, "hello")
+	spec, err := b.buildSpec(d, "hello", nil)
 	if err != nil {
 		t.Fatalf("buildSpec: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestNeedsInputClosesTheGateAndRemovesItsConfig(t *testing.T) {
 // deleting it would break that process's live run mid-flight.
 func TestSweepStaleGateConfigsLeavesALiveGateAlone(t *testing.T) {
 	dir := t.TempDir()
-	runtimeDir := t.TempDir()
+	runtimeDir := shortTempDir(t)
 
 	// A live socket: something is actually listening, standing in for a
 	// second bridge process's own gate. Its path must be the exact one
@@ -419,7 +419,7 @@ func TestSweepStaleGateConfigsNeverDialsAPlantedOutOfTreeSocket(t *testing.T) {
 	dir := t.TempDir()
 	runtimeDir := t.TempDir()
 
-	plantedDir := t.TempDir() // NOT <runtimeDir>/gate — simulates a planted, out-of-tree path
+	plantedDir := shortTempDir(t) // NOT <runtimeDir>/gate — simulates a planted, out-of-tree path
 	planted := filepath.Join(plantedDir, "anywhere.sock")
 	dialed := make(chan struct{}, 1)
 	ln, err := net.Listen("unix", planted)
@@ -484,7 +484,7 @@ func TestWatcherOnOneRunDoesNotClaimAnotherRunsQuestion(t *testing.T) {
 	}
 	t.Cleanup(b.runs.CancelAll)
 
-	srv, err := control.Listen(t.TempDir(), platform.NewControlEndpoint(), b, b.log)
+	srv, err := control.Listen(shortTempDir(t), platform.NewControlEndpoint(), b, b.log)
 	if err != nil {
 		t.Fatalf("control.Listen: %v", err)
 	}
