@@ -80,7 +80,7 @@ tests → compile → smoke** — where the jobs inside a stage run in parallel 
 gates the next. Security is secret scanning (TruffleHog, Gitleaks) plus `govulncheck` and
 `gosec`; tests are `golangci-lint`, a `gofmt` gate and `go vet` + `go test -race` on Linux
 and macOS; compile builds all six cross-compile targets; smoke boots the binary, runs
-`bridge doctor` on both operating systems and loads every documented config example. The
+`bridge doctor` on Linux, macOS and Windows and loads every documented config example. The
 four stages are reusable workflows (`stage-*.yml`) that `.github/workflows/release.yml`
 calls in the same order before publishing, so a tag runs exactly the checks a pull request
 does. The conformance suite and the pinned-vendor-CLI smoke job run nightly and on manual

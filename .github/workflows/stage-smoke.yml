@@ -13,21 +13,25 @@ permissions:
 
 jobs:
   # This job proves the binary builds and boots, that the loader and its semantic
-  # rules run, and that the platform paths resolve on both supported operating
-  # systems. It needs no vendor CLI, no credentials and no model invocation.
+  # rules run, and that the platform paths resolve on all three supported
+  # operating systems. It needs no vendor CLI, no credentials and no model
+  # invocation. Windows is the one that proves something new: its seams have
+  # never been executed anywhere else in CI.
   doctor:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
-      - run: go build -o bridge ./cmd/bridge
+      - if: runner.os != 'Windows'
+        run: go build -o bridge ./cmd/bridge
       - name: doctor against a minimal config
+        if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/minimal.yaml" <<'EOF'
@@ -50,6 +54,44 @@ jobs:
           # probes each adapter with `<command> --version`, and BSD cat on macOS
           # exits non-zero for --version while echo exits 0 on both platforms.
           ./bridge doctor --host claude --config "$RUNNER_TEMP/minimal.yaml"
+
+      # Windows runs the same probe through its own seams: %LOCALAPPDATA% paths
+      # with a DACL instead of 0700 directories, and a config the loader will
+      # not vouch for. Config permission checking is unimplemented there
+      # (internal/config/perm_windows.go, v1.1), so the loader refuses every
+      # file; --insecure-skip-permission-check is the only way to exercise the
+      # loader and the semantic rules on Windows at all, and doctor prints a
+      # WARN line whenever it is used.
+      - name: build (Windows)
+        if: runner.os == 'Windows'
+        run: go build -o bridge.exe ./cmd/bridge
+      - name: doctor against a minimal config (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The adapter command is a copy of the bridge binary: `bridge
+          # --version` exits 0, so the probe needs no vendor CLI and no PATH
+          # lookup, and the copied name keeps it clear of self-exclusion.
+          $agent = Join-Path $env:RUNNER_TEMP 'demo-agent.exe'
+          Copy-Item .\bridge.exe $agent
+          $cfg = Join-Path $env:RUNNER_TEMP 'minimal.yaml'
+          # Single-quoted YAML scalars: backslashes in a Windows path are not
+          # escapes there.
+          @"
+          version: 1
+          allowed_roots: ['$env:RUNNER_TEMP']
+          agents:
+            demo:
+              command: '$agent'
+              tier: basic
+              mode: read-only
+              sandbox:
+                read-only: ["--safe"]
+              invoke:
+                args: ["run"]
+          "@ | Set-Content -Path $cfg -Encoding utf8
+          .\bridge.exe doctor --host claude --config $cfg --insecure-skip-permission-check
 
   # The specification and the implementation must not drift: every complete YAML
   # example in the docs is loaded by the real loader, semantic rules included.

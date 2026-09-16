@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"time"
 
@@ -47,6 +48,12 @@ func runDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	host := fs.String("host", "", "agent_id to verify against the environment")
 	configPath := fs.String("config", "", "config file path")
+	// Windows refuses every config load until the DACL check lands (v1.1), so
+	// without this there is no way to exercise the loader there at all. It is
+	// doctor-only and never silent: serve has no such flag, and a skipped check
+	// is reported in the output.
+	skipPerm := fs.Bool("insecure-skip-permission-check", false,
+		"load the config without checking that only its owner can write it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -75,6 +82,12 @@ func runDoctor(args []string) error {
 		switch {
 		case err != nil:
 			report(false, "%s: %v", d, err)
+		// Go reports every Windows directory as 0777: the real protection there
+		// is the DACL platform.NewPaths applies, which this has no way to read.
+		// Asserting the POSIX mode would fail on a correctly protected
+		// directory, so the check is stated as unverified rather than faked.
+		case runtime.GOOS == "windows":
+			fmt.Printf("WARN  %s: owner-only is enforced by its DACL, which doctor does not verify (v1.1)\n", d)
 		case fi.Mode().Perm() != 0o700:
 			report(false, "%s is mode %04o, want 0700", d, fi.Mode().Perm())
 		default:
@@ -102,7 +115,10 @@ func runDoctor(args []string) error {
 	if _, err := os.Stat(*configPath); err != nil {
 		report(false, "config: %v", err)
 	} else {
-		cfg, err := config.Load(*configPath, config.Options{Host: *host})
+		if *skipPerm {
+			fmt.Printf("WARN  config permission check skipped: %s is trusted without proof that only its owner can write it\n", *configPath)
+		}
+		cfg, err := config.Load(*configPath, config.Options{Host: *host, SkipPermissionCheck: *skipPerm})
 		if err != nil {
 			report(false, "config: %v", err)
 		} else {

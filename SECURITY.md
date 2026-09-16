@@ -174,7 +174,13 @@ until the port lands — the blocker is that npm-installed `claude` and `codex` 
 shims, which the adapter rules refuse. As of 2026-09-16 the Windows implementations of all
 four seams exist, but **nothing executes them**: CI cross-compiles Windows and runs no test
 there. A Windows binary is therefore not a supported artifact, and the mechanisms below are
-claims about code that has compiled, not about behaviour anyone has observed. The
+claims about code that has compiled, not about behaviour anyone has observed. The one
+exception as of 2026-09-16 is the `doctor` smoke job, which now runs on `windows-latest`
+and therefore executes `platform.NewPaths`, the DACL'd state and runtime directories, the
+loader and the semantic rules. It reaches the loader only via
+`--insecure-skip-permission-check`, because config permission checking on Windows is
+unimplemented and refuses: on that platform a config file is trusted without proof that
+only its owner can write it, which is a real gap, not a check that passed. The
 security-relevant mechanisms differ by platform and are implemented behind four interfaces:
 
 - **Windows has no argv.** The OS passes one command-line string that each program parses

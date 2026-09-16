@@ -38,6 +38,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # No windows-latest yet, deliberately. 22 of 46 test files assume POSIX
+        # (bare sh/echo/sleep/cat spawns, hardcoded /bin/*, raw
+        # net.Dial("unix") bypassing the named-pipe seam, Perm()==0600
+        # assertions), so the job would be red for environmental reasons and,
+        # because smoke needs compile needs tests, would block the Windows
+        # doctor smoke job that does run. Add it once those tests are ported.
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:

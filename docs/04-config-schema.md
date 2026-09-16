@@ -515,6 +515,12 @@ vendor accepts those flags or emits that stream shape; only the gated conformanc
 that (`docs/12-spike-results.md` records what a flag was observed to do, which is the same
 distinction).
 
+`bridge doctor --insecure-skip-permission-check` loads the config without asking whether
+only its owner can write it. It exists because Windows has no permission check yet: the
+loader refuses every config file there (`internal/config/perm_windows.go`, v1.1), so without
+the flag nothing on Windows can reach the loader at all. `serve` has no such flag, and
+`doctor` prints a `WARN` line naming the file whenever the flag is used.
+
 `bridge doctor` checks: config file permissions (mode on POSIX, DACL on Windows), every
 adapter's binary resolves and `--version` runs, allowed roots exist and are directories and
 canonicalise cleanly, state and runtime locations are owner-only, the control endpoint can

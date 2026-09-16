@@ -178,7 +178,12 @@ func (c *pipeConn) Read(b []byte) (int, error) {
 	defer c.readMu.Unlock()
 	readDl, _ := c.deadlines()
 	n, err := c.do(c.readEv, readDl, func(ov *windows.Overlapped) error {
-		return windows.ReadFile(c.handle, b, nil, ov)
+		// done must not be nil even though the overlapped path ignores it and
+		// GetOverlappedResult supplies the real count: the race-enabled build
+		// of x/sys dereferences it unconditionally, and `go test -race` is the
+		// suite CI runs.
+		var done uint32
+		return windows.ReadFile(c.handle, b, &done, ov)
 	})
 	if err != nil {
 		// The peer closing its end is EOF, not a failure.
@@ -204,7 +209,9 @@ func (c *pipeConn) Write(b []byte) (int, error) {
 	for written < len(b) {
 		chunk := b[written:]
 		n, err := c.do(c.writeEv, writeDl, func(ov *windows.Overlapped) error {
-			return windows.WriteFile(c.handle, chunk, nil, ov)
+			// Non-nil for the same reason as the read path above.
+			var done uint32
+			return windows.WriteFile(c.handle, chunk, &done, ov)
 		})
 		written += int(n)
 		if err != nil {
