@@ -33,10 +33,10 @@ boundary and as a supervised activity:
   elicitation inside your host agent. Never guessed, never silently defaulted. Shipped for
   Claude Code only — `codex exec` has no correlated approval request to surface, so a
   Codex run fails closed into `needs_input` instead. This path is double-gated (adapter
-  capability plus an operator-enabled feature flag) and asserted by unit tests; the
-  end-to-end claim that a real vendor CLI's question reaches the operator and nothing else
-  rests on those unit tests plus manual testing, not on a passing conformance run — see
-  SECURITY.md's enforced/declared distinction.
+  capability plus an operator-enabled feature flag), and a gated conformance test drives a
+  real `claude` child through the whole path — question, operator answer, the answer
+  reaching the model — so the end-to-end property is *enforced*, not merely declared. That
+  suite spends vendor credits and runs on demand, never on a pull request.
 - **Mid-run steering.** Type extra guidance into a running agent through its vendor's own
   channel (`codex queue`, Claude's streaming stdin). Agent A can steer too, under a cap.
 - **Self-call exclusion.** Claude cannot delegate to Claude; Codex cannot delegate to
@@ -106,14 +106,35 @@ dispatch only — never on a pull request from a fork.
 
 ## Requirements
 
-Go 1.26+ to build (see `go.mod`). **v1.0 supports Linux and macOS**; Windows is v1.1 (all
-six targets compile and are CI-built from the start, but Windows binaries are unsupported
-previews until the Phase 5a port lands). The target agents' own CLIs, already logged in.
+Go 1.26+ to build (see `go.mod`). **v1.0 supports Linux and macOS**; Windows targets v1.1
+(all six targets compile and are CI-built from the start, but the Windows binaries are
+unsupported previews until that port has actually been executed). The target agents' own
+CLIs, already logged in.
+
+## Versioning and compatibility
+
+Semantic versioning from `v1.0.0`. What the compatibility promise covers:
+
+- the MCP tool surface: tool names, parameters, and the shape of what they return;
+- the configuration file: keys, defaults, enum values, and the semantic rules that reject a
+  config;
+- adapter declaration keys and placeholder names;
+- the operator verbs and their flags;
+- the control-channel verbs and their wire records;
+- audit record field names.
+
+What it does not cover: every Go package under `internal/`, the normalised transcript event
+shapes (they follow the vendors' own streams and change when those change), the TUI layout,
+and the Windows binaries, which stay unsupported previews until the port has been executed
+on Windows.
+
+Removing or renaming anything in the covered list, or narrowing a default so an existing
+config behaves differently, is a **major** release. A new optional setting whose default
+preserves current behaviour is a **minor** one. The single exception is a security fix: a
+default may be tightened in a minor release when leaving it alone would keep users exposed,
+and the CHANGELOG says so explicitly under `Changed`.
 
 ## Licence
 
 MIT, copyright Andrii Afanasiev — see [LICENSE](LICENSE). Every release archive carries it
 (`.goreleaser.yaml`).
-
-*Still open before the first public release: an explicit no-telemetry statement in
-SECURITY.md.*

@@ -121,6 +121,18 @@ trust boundary, not plumbing. The full analysis is in
     digest. `audit.Write` still strips bodies whenever `bodies` is off, same as every other
     event.
 
+13. **No telemetry, no phone-home.** The bridge collects nothing about you, your prompts or
+    your repositories, and sends nothing anywhere. It has no update check, no crash
+    reporter, no usage counter and no analytics dependency. The only sockets it opens are
+    local IPC: the operator control endpoint and the per-run gate, both Unix domain sockets
+    on Linux and macOS and named pipes on Windows. Everything it writes stays on the
+    machine, under the state directory (transcripts, audit log) — see `bridge doctor` for
+    the exact paths. The delegated CLI does talk to its own vendor, authenticated by that
+    vendor's own login; that traffic belongs to the vendor, and the bridge neither adds to
+    it nor inspects it. *Declared, not enforced:* no test asserts the absence of a network
+    call. The evidence is the source — every `net` call in the tree is a unix-socket or
+    named-pipe `Listen`/`Dial`, and no HTTP client is constructed anywhere.
+
 ## Security properties we do NOT claim
 
 - **The bridge is not a sandbox.** It configures the *target CLI's* sandbox and confines

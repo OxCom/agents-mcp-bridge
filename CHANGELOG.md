@@ -11,13 +11,13 @@ tagged release, so there are no version headings or dates below — only the acc
 
 - MCP server over stdio (`bridge serve --host <claude|codex>`) exposing `ask_<agent>`,
   `await_agent`, `steer_agent`, `cancel_agent` and `list_runs`; none of these tools can
-  alter policy (Phase 0–1).
+  alter policy.
 - Config loader with JSON Schema validation (`schema/config.schema.json`) plus 21
   semantic rules not expressible in JSON Schema (`internal/config/semantics.go`), enforced
   as load errors, never warnings.
 - Platform abstraction (`internal/platform`) behind four interfaces — `Paths`,
-  `PathGuard`, `ProcessGroup`, `ControlEndpoint` — with POSIX implementations; Windows
-  constructors return errors and fail closed until Phase 5a.
+  `PathGuard`, `ProcessGroup`, `ControlEndpoint` — with POSIX implementations. The
+  Windows implementations came later and have never been executed; see below.
 - Adapter registry and argv builder (`internal/adapter`): `PATH` resolution, identity
   checks, self-call exclusion by `agent_id == --host`, placeholder expansion as whole
   argv elements only, rejection of shell metacharacters and `--dangerously*`/`--yolo`/
@@ -39,8 +39,7 @@ tagged release, so there are no version headings or dates below — only the acc
   Reports argv building, prompt delivery by the declared mode, envelope and sanitisation,
   timeout kill, non-zero exit handling, sandbox flag presence (`sandbox_enforced: false` is
   reported as UNSANDBOXED), `stream.Parser` registration and fixture parsing, and the
-  interactive rules 13/18/19/20/21 — one PASS/FAIL/SKIP line each, exit 1 on any FAIL
-  (Phase 6.3).
+  interactive rules 13/18/19/20/21 — one PASS/FAIL/SKIP line each, exit 1 on any FAIL.
 - Basic-tier runner: a `tier: basic` adapter is pure YAML (invoke, sandbox flags, cwd
   confinement, buffered output) with no Go code and no rebuild.
 - Two reference `tier: full` adapters, each with a registered `stream.Parser`: `claude`
@@ -49,18 +48,17 @@ tagged release, so there are no version headings or dates below — only the acc
   `exec resume`'s rejection of `-C`/`--sandbox`, Claude's `--tools` vs `--allowed-tools`,
   `--setting-sources ""` as the only stop for a hostile repo's hook).
 - Run manager, event normalisation from `codex exec --json` and `claude --output-format
-  stream-json`, per-run JSONL transcripts, and non-blocking `ask_<agent>`/`await_agent`
-  (Phase 2).
+  stream-json`, per-run JSONL transcripts, and non-blocking `ask_<agent>`/`await_agent`.
 - Control socket (`internal/control`): Unix domain socket, `0600`, `SO_PEERCRED` UID
   check, connections from another UID refused and logged.
 - `bridge watch` TUI (Bubble Tea): run picker, live event feed, tool/file/shell
   rendering, token counters.
-- Write isolation (Phase 2a): disposable git worktree per write-mode run, diff extraction
+- Write isolation: disposable git worktree per write-mode run, diff extraction
   with per-file digests, `bridge accept`/`accept_changes` via `git apply --3way` (refusing
   on conflict), worktree removal on accept/reject/expiry, `worktree: off` behind a double
   config ceiling (`allow_write_mode` + `allow_unconfined_write`) labelled **UNCONFINED**
   in the tool description and `confinement: none` in the audit log.
-- Interactive mode (Phase 3): a per-run gate transport (`bridge gate`) receiving the
+- Interactive mode: a per-run gate transport (`bridge gate`) receiving the
   child's question as an MCP `tools/call` over a Unix socket, never by stream-event
   detection; a TUI answer panel; an `elicitation/create` fallback; a fail-closed
   `needs_input` result carrying a run-id `session_handle` when no operator channel is
@@ -69,18 +67,18 @@ tagged release, so there are no version headings or dates below — only the acc
   looked up from the run at write time; that lookup fails open, so a `question.asked`
   raised before the run registers is audited with an empty `TargetAgent` rather than
   blocking the write.
-- Mid-run steering (Phase 4): `bridge steer` (operator, uncapped) and `steer_agent` MCP
+- Mid-run steering: `bridge steer` (operator, uncapped) and `steer_agent` MCP
   tool (agent, capped by `max_agent_steers`), steer origin recorded in the audit log,
   `steer: false` adapters returning `unsupported_capability`. Codex has no steer channel
   (`codex queue` is a next-run mailbox, not a mid-turn channel) and does not declare one.
-- Feature toggles, limits and operator control (Phase 5): global default → adapter
+- Feature toggles, limits and operator control: global default → adapter
   override → runtime toggle precedence (narrow-only, tested against widening attempts);
   `bridge enable/disable/status/runs/stop` over the control socket; concurrency,
   wall-clock, max-turns, steer-cap and output-cap limits; `bridge doctor` full check set;
   a schema-review test asserting no MCP tool carries a policy field.
 - CI building all six release targets (`linux/darwin/windows` × `amd64/arm64`) from the
-  first commit, so the platform seams cannot rot while the Windows port (Phase 5a) is
-  deferred. These checks now live in the staged pipeline described below.
+  first commit, so the platform seams cannot rot while the Windows port is deferred.
+  These checks now live in the staged pipeline described below.
 - Gated conformance suite (`BRIDGE_CONFORMANCE=1 go test ./conformance/`) invoking real
   `claude`/`codex` CLIs — nightly and manual-dispatch only, never on a pull request from a
   fork. Not run by default; SECURITY.md's enforced/declared distinction applies to
@@ -97,11 +95,20 @@ tagged release, so there are no version headings or dates below — only the acc
   suite on Linux and macOS; compile builds all six release targets; smoke boots the binary
   and runs `bridge doctor` on both operating systems, loads every documented config example,
   and — on a schedule or a release — installs the pinned vendor CLIs (`claude` 2.1.272,
-  `codex-cli` 0.154.0) and asserts the binaries report those versions (Phase 6.4).
+  `codex-cli` 0.154.0) and asserts the binaries report those versions.
+- Versioning and compatibility policy (`README.md`): semantic versioning from `v1.0.0`,
+  naming what the promise covers (MCP tool surface, config keys and defaults, adapter
+  declaration keys, operator verbs, control-channel records, audit field names) and what it
+  does not (`internal/` packages, transcript event shapes, TUI layout, Windows previews).
+  A security fix may tighten a default in a minor release; everything else that narrows
+  behaviour is a major.
+- Explicit no-telemetry claim (`SECURITY.md` item 13): no update check, no crash reporter,
+  no analytics, no outbound connection of any kind; the only sockets are the local control
+  endpoint and the per-run gate.
 - MIT licence (`LICENSE`), copyright Andrii Afanasiev. `.goreleaser.yaml` archives it with
   every release artifact; until now that `LICENSE*` glob matched nothing and the archives
   would have shipped unlicensed.
-- Windows implementations of all four platform seams (Phase 5a, partial): `Paths` with
+- Windows implementations of all four platform seams, partial and unexecuted: `Paths` with
   owner-only DACLs, `PathGuard` over `GetFinalPathNameByHandle` rejecting UNC paths, device
   namespaces, reserved device names and alternate data streams, `ProcessGroup` as a
   `KILL_ON_JOB_CLOSE` job object, and `ControlEndpoint` as a named pipe with an owner-SID DACL,
@@ -115,7 +122,7 @@ tagged release, so there are no version headings or dates below — only the acc
   the job object captures it; `AfterStart` assigns and resumes it. POSIX implements it as a
   no-op, so `internal/run` needs no OS branch. Without the call the child would stay suspended
   forever.
-- Release workflow (`.github/workflows/release.yml`, Phase 6.2): tag-gated (`v*`), running the
+- Release workflow (`.github/workflows/release.yml`): tag-gated (`v*`), running the
   same four stages before `goreleaser release --clean` for the six targets, with `syft` SBOMs
   per archive, keyless `cosign` signing of `checksums.txt` over GitHub OIDC, and SLSA build
   provenance via `actions/attest-build-provenance`. Write permissions are granted per job,
