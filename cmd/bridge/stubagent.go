@@ -158,7 +158,7 @@ func writeStubEcho(argv []string, in io.Reader, out io.Writer) error {
 // the point is that the adapter's own parser, not the stub, decides what the
 // lines mean.
 func emitFile(path string, out io.Writer) error {
-	// #nosec G304 -- path comes from the operator's own --stream-fixture flag,
+	// #nosec G304 G703 -- path comes from the operator's own --stream-fixture flag,
 	// passed through `bridge validate`. The stub reads it and nothing else.
 	f, err := os.Open(path)
 	if err != nil {
