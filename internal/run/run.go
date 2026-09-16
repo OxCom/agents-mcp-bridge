@@ -14,6 +14,9 @@ import (
 // State is where a run is. Terminal states are the ones with no live child.
 type State string
 
+// StateRunning and the states below are the run states of docs/11 §3. A run
+// occupies a max_concurrent_runs slot until it reaches a terminal one, which
+// State.IsTerminal decides.
 const (
 	StateRunning    State = "running"
 	StateCompleted  State = "completed"
@@ -245,7 +248,7 @@ func (r *Run) Snapshot() Snapshot {
 
 // peekState reads state and Finished without applying the needs_input
 // expiry transition or dispatching its audit callback (contrast
-// expireIfDue). It is the only run accessor Registry.liveCountLocked and
+// expireIfDue). It is the only run accessor Registry.liveCountExcludingLocked and
 // Registry.pruneLocked may call while holding Registry.mu: expiry does disk
 // I/O through the transition callback (item 1), and that must never happen
 // with Registry.mu held, so those two call sites see state as of the last
@@ -302,7 +305,7 @@ func (r *Run) expireIfDue() {
 
 // expireIfPastDeadlineLocked converts a needs_input run whose deadline has
 // passed into StateFailed (C3), so it stops resting on a concurrency slot
-// forever (Registry.liveCountLocked reads state through Snapshot). Callers
+// forever (Registry.liveCountExcludingLocked reads state through Snapshot). Callers
 // must hold r.mu. A zero deadline (no Question.Deadline was ever set) never
 // expires.
 //
@@ -545,14 +548,14 @@ func (reg *Registry) CancelAll() {
 	}
 }
 
-// pruneLocked and liveCountLocked both run with Registry.mu held (item 1),
+// pruneLocked and liveCountExcludingLocked both run with Registry.mu held (item 1),
 // so they read state through peekState, never Snapshot: Snapshot may run the
 // needs_input expiry transition, whose audit callback does disk I/O, and
 // that must never happen while Registry.mu is held. Callers that need expiry
 // applied first call Registry.sweepExpired before taking the lock, so by the
 // time these run, any run that should already be failed already is.
 //
-// liveCountLocked errs high, never low: a needs_input run that crosses its
+// liveCountExcludingLocked errs high, never low: a needs_input run that crosses its
 // deadline after sweepExpired returns but before this runs still counts,
 // until the next sweep that the next Start, Get or List triggers. That
 // refuses one admission it could have allowed, which is the safe direction.
@@ -569,12 +572,8 @@ func (reg *Registry) pruneLocked() {
 	}
 }
 
-func (reg *Registry) liveCountLocked() int {
-	return reg.liveCountExcludingLocked("")
-}
-
-// liveCountExcludingLocked is liveCountLocked but never counts the run with
-// the given id (an empty id excludes nothing). Start passes spec.ResumedFrom
+// liveCountExcludingLocked counts the runs occupying a slot, but never the
+// run with the given id (an empty id excludes nothing). Start passes spec.ResumedFrom
 // here so a continuation's successor is admitted against the room its
 // predecessor's own needs_input rest state already occupies, instead of
 // requiring that slot freed in advance by retiring the predecessor first.

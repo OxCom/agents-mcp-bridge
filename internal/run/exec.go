@@ -89,7 +89,7 @@ func (reg *Registry) Start(spec Spec, group platform.ProcessGroup) (*Run, error)
 	// a continuation's successor is admitted against the room the
 	// predecessor's own needs_input rest state already occupies (see
 	// liveCountExcludingLocked). For an ordinary run ResumedFrom is empty
-	// and this is exactly the old liveCountLocked check.
+	// and this is exactly the plain live count.
 	if live := reg.liveCountExcludingLocked(spec.ResumedFrom); live >= reg.maxLive {
 		reg.mu.Unlock()
 		return nil, fmt.Errorf("%w: %d of %d slots in use", ErrConcurrencyLimit, live, reg.maxLive)
@@ -306,7 +306,7 @@ type capped struct {
 }
 
 func (c *capped) drain(rc io.ReadCloser) bool {
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	chunk := make([]byte, 32<<10)
 	for {
 		n, err := rc.Read(chunk)

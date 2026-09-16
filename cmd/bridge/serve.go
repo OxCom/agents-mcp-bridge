@@ -102,7 +102,11 @@ func runServe(args []string) error {
 		if err != nil {
 			return fmt.Errorf("audit: %w", err)
 		}
-		defer auditor.Close()
+		defer func() {
+			if err := auditor.Close(); err != nil {
+				log.Warn("audit log close failed; trailing records may be lost", "error", err)
+			}
+		}()
 	}
 
 	// A crashed process leaves its gate-*.json files behind: recordCompletion
@@ -161,7 +165,11 @@ func runServe(args []string) error {
 	if err != nil {
 		return fmt.Errorf("control channel: %w", err)
 	}
-	defer ctrl.Close()
+	defer func() {
+		if err := ctrl.Close(); err != nil {
+			log.Warn("control channel close failed", "error", err)
+		}
+	}()
 	b.control = ctrl
 	log.Info("control channel ready", "socket", ctrl.Socket())
 

@@ -13,6 +13,7 @@ import (
 // record is the only reliable completion signal.
 type ClaudeParser struct{}
 
+// Name reports the adapter id ParserFor keys on to reach this parser.
 func (ClaudeParser) Name() string { return "claude" }
 
 type claudeLine struct {
@@ -39,6 +40,10 @@ type claudeMessage struct {
 	} `json:"usage"`
 }
 
+// Parse consumes one line of claude's stream-json output and emits one
+// normalised Event: a system record starts the run, a result record finishes
+// it, and assistant content becomes a message, thinking or tool-call event.
+// A line that is not the expected JSON survives as KindUnknown, never an error.
 func (p ClaudeParser) Parse(line []byte) (Event, bool) {
 	if len(line) == 0 {
 		return Event{}, false

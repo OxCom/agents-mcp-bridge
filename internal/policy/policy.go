@@ -18,6 +18,8 @@ import (
 // and the MCP error surface agree on vocabulary.
 type Reason string
 
+// The closed set of refusal reasons. Adding one obliges the audit log and the MCP
+// error surface to carry the same string.
 const (
 	ReasonUnknownAgent      Reason = "unknown_agent"
 	ReasonSelfCall          Reason = "self_call"

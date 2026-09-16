@@ -106,7 +106,7 @@ func forward(a gate.Ask) gate.Reply {
 	if err != nil {
 		return deny
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	// No deadline on the read: a human is on the other end of this call, and
 	// that can take minutes.
 	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))

@@ -9,8 +9,22 @@ import (
 	"testing"
 )
 
+// shortTempDir is t.TempDir with a base short enough to leave room for a socket
+// name: t.TempDir builds its path from TMPDIR plus the test's own name, and on a
+// macOS runner TMPDIR alone is a ~50-byte /var/folders path, so a descriptive
+// test name pushes the socket past the 104-byte sun_path limit.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "bridge")
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func TestListenCreatesOwnerOnlySocket(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "ctl.sock")
+	sock := filepath.Join(shortTempDir(t), "ctl.sock")
 	ln, err := NewControlEndpoint().Listen(sock)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
@@ -27,7 +41,7 @@ func TestListenCreatesOwnerOnlySocket(t *testing.T) {
 }
 
 func TestListenClearsStaleSocket(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "ctl.sock")
+	sock := filepath.Join(shortTempDir(t), "ctl.sock")
 	ep := NewControlEndpoint()
 	ln1, err := ep.Listen(sock)
 	if err != nil {
@@ -50,7 +64,7 @@ func TestListenRefusesOverlongPath(t *testing.T) {
 }
 
 func TestVerifyPeerAcceptsSameUser(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "ctl.sock")
+	sock := filepath.Join(shortTempDir(t), "ctl.sock")
 	ep := NewControlEndpoint()
 	ln, err := ep.Listen(sock)
 	if err != nil {

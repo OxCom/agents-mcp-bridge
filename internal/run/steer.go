@@ -13,6 +13,8 @@ import (
 // in the loop is the loop this project exists to keep bounded.
 type Origin string
 
+// The two steer origins. Anything the operator did not inject is
+// OriginAgent and counts against the run's agent steer budget.
 const (
 	OriginOperator Origin = "operator"
 	OriginAgent    Origin = "agent"

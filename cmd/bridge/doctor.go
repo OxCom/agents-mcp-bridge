@@ -24,7 +24,7 @@ func probeCommand(path string) error {
 	cmd := exec.CommandContext(ctx, path, "--version")
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s --version failed: %v: %s", path, err, firstLine(string(out)))
+		return fmt.Errorf("%s --version failed: %w: %s", path, err, firstLine(string(out)))
 	}
 	return nil
 }

@@ -15,7 +15,7 @@ import (
 // this test pins the contract both implementations owe their call sites.
 func TestDialControlReachesTheEndpointAndVerifiesThePeer(t *testing.T) {
 	ep := NewControlEndpoint()
-	name := filepath.Join(t.TempDir(), "control.sock")
+	name := filepath.Join(shortTempDir(t), "control.sock")
 
 	ln, err := ep.Listen(name)
 	if err != nil {
@@ -53,7 +53,7 @@ func TestDialControlReachesTheEndpointAndVerifiesThePeer(t *testing.T) {
 // TestDialControlFailsOnAnAbsentEndpoint pins that dialling an endpoint nobody
 // serves is an error rather than a hang, on both platforms.
 func TestDialControlFailsOnAnAbsentEndpoint(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "nobody-is-listening.sock")
+	missing := filepath.Join(shortTempDir(t), "nobody-is-listening.sock")
 	conn, err := DialControl(missing, 500*time.Millisecond)
 	if err == nil {
 		_ = conn.Close()

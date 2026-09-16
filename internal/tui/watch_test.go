@@ -335,7 +335,7 @@ func TestPollQuestionSurfacesAndClearsAControlChannelFailure(t *testing.T) {
 	if calls != 3 {
 		t.Fatalf("refresh called %d times, want 3", calls)
 	}
-	if m.controlErr != first {
+	if !errors.Is(m.controlErr, first) {
 		t.Fatal("repeated failures must not replace the error with a new instance each tick")
 	}
 	if got := m.View(); strings.Count(got, first.Error()) != 1 {

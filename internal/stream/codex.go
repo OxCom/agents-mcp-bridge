@@ -20,6 +20,7 @@ import (
 // "message" event finds nothing.
 type CodexParser struct{}
 
+// Name reports the adapter id ParserFor keys on to reach this parser.
 func (CodexParser) Name() string { return "codex" }
 
 type codexLine struct {
@@ -41,6 +42,10 @@ type codexLine struct {
 	} `json:"usage"`
 }
 
+// Parse consumes one line of `codex exec --json` and emits one normalised
+// Event. Thread and turn records map to run and usage kinds; every payload
+// arrives as item.completed, so item.type selects the kind.
+// An unrecognised or non-JSON line survives as KindUnknown, never an error.
 func (p CodexParser) Parse(line []byte) (Event, bool) {
 	if len(line) == 0 {
 		return Event{}, false

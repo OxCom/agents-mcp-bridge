@@ -668,25 +668,25 @@ func tail(s string) string {
 // printValidateReport renders the plain report, in the same register as
 // bridge doctor's: one line per finding, status first.
 func printValidateReport(w io.Writer, r *validateReport) {
-	fmt.Fprintf(w, "config  %s\n\n", r.Config)
+	_, _ = fmt.Fprintf(w, "config  %s\n\n", r.Config)
 	for _, c := range r.Checks {
-		fmt.Fprintf(w, "  %-4s  %-16s  %s\n", c.Status, c.Name, c.Detail)
+		_, _ = fmt.Fprintf(w, "  %-4s  %-16s  %s\n", c.Status, c.Name, c.Detail)
 	}
 	total, passed, failed, skipped := 0, 0, 0, 0
 	for _, c := range r.Checks {
 		total, passed, failed, skipped = tally(c, total, passed, failed, skipped)
 	}
 	for _, a := range r.Adapters {
-		fmt.Fprintf(w, "\nadapter %s  (tier %s, mode %s)\n", a.Agent, a.Tier, a.Mode)
+		_, _ = fmt.Fprintf(w, "\nadapter %s  (tier %s, mode %s)\n", a.Agent, a.Tier, a.Mode)
 		for _, c := range a.Checks {
-			fmt.Fprintf(w, "  %-4s  %-16s  %s\n", c.Status, c.Name, c.Detail)
+			_, _ = fmt.Fprintf(w, "  %-4s  %-16s  %s\n", c.Status, c.Name, c.Detail)
 			total, passed, failed, skipped = tally(c, total, passed, failed, skipped)
 		}
 	}
-	fmt.Fprintf(w, "\n%d adapter(s), %d check(s): %d passed, %d failed, %d skipped\n",
+	_, _ = fmt.Fprintf(w, "\n%d adapter(s), %d check(s): %d passed, %d failed, %d skipped\n",
 		len(r.Adapters), total, passed, failed, skipped)
 	if failed == 0 {
-		fmt.Fprintln(w, "\nno failures")
+		_, _ = fmt.Fprintln(w, "\nno failures")
 	}
 }
 

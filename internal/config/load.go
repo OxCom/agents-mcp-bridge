@@ -92,7 +92,7 @@ func readConfig(path string, skipPermissionCheck bool) ([]byte, error) {
 	if err != nil {
 		return nil, errf("", "open config: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if !skipPermissionCheck {
 		if err := checkOpenFile(f); err != nil {
@@ -122,7 +122,7 @@ func decodeYAML(raw []byte) (any, error) {
 	var second any
 	if err := dec.Decode(&second); err == nil {
 		return nil, errf("", "multiple YAML documents: exactly one is allowed")
-	} else if err != io.EOF {
+	} else if !errors.Is(err, io.EOF) {
 		return nil, errf("", "parse: %v", err)
 	}
 	// Round-trip through JSON so the validator sees canonical types

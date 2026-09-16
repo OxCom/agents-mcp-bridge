@@ -49,6 +49,9 @@ const (
 	maxInFlight = 8
 )
 
+// Server is the delegated child's only address. It carries one blocking
+// question and its verdict, nothing else: no run listing, no transcript, no
+// pointer to the operator's control socket (docs/03 C1).
 type Server struct {
 	socket       string
 	ln           net.Listener
@@ -63,6 +66,9 @@ type Server struct {
 	writeTimeout time.Duration
 }
 
+// Listen starts the gate for one run on a socket under <runtimeDir>/gate/ and
+// begins accepting immediately. The child reaches it only via the per-run
+// mcp-config; token must match on every request.
 func Listen(runtimeDir, runID, token string, ep platform.ControlEndpoint, r Resolver, log *slog.Logger) (*Server, error) {
 	return listen(runtimeDir, runID, token, ep, r, log, defaultRequestReadTimeout, defaultReplyWriteTimeout)
 }
@@ -104,6 +110,8 @@ func listen(runtimeDir, runID, token string, ep platform.ControlEndpoint, r Reso
 	return s, nil
 }
 
+// Socket returns the path cmd/bridge/gateconfig.go writes into the child's
+// mcp-config. It is never returned to the calling agent.
 func (s *Server) Socket() string { return s.socket }
 
 func (s *Server) accept() {
@@ -136,12 +144,12 @@ func (s *Server) accept() {
 }
 
 func (s *Server) reject(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	s.reply(conn, Reply{Behavior: "deny", Error: "gate busy"})
 }
 
 func (s *Server) serve(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := s.ep.VerifyPeer(conn); err != nil {
 		s.log.Warn("gate peer refused", "err", err)
 		return
@@ -184,6 +192,9 @@ func (s *Server) reply(conn net.Conn, r Reply) {
 	}
 }
 
+// Close stops accepting and unlinks the socket. It is idempotent and returns
+// the listener's close error; the unlink is best-effort, since a closed
+// listener has usually already removed the file.
 func (s *Server) Close() error {
 	var err error
 	s.once.Do(func() {

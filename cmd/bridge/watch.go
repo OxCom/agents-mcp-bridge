@@ -173,7 +173,7 @@ func collectRuns(runtimeDir string) ([]located, error) {
 
 func printRuns(runs []located) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "RUN\tHOST\tAGENT\tSTATE\tMODE\tAGE")
+	_, _ = fmt.Fprintln(w, "RUN\tHOST\tAGENT\tSTATE\tMODE\tAGE")
 	for _, r := range runs {
 		age := time.Since(r.info.Started).Round(time.Second)
 		warnings := ""
@@ -187,7 +187,7 @@ func printRuns(runs []located) {
 		if r.info.SupersededBy != "" {
 			state += " -> " + r.info.SupersededBy
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s%s\t%s\n",
 			r.info.RunID, r.host, r.info.Agent, state, r.info.Mode, warnings, age)
 	}
 	_ = w.Flush()

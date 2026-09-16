@@ -121,7 +121,8 @@ func ReadTranscript(path string) ([]Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	// Read path: a Close error cannot lose data, so it is dropped deliberately.
+	defer func() { _ = f.Close() }()
 	return DecodeEvents(f)
 }
 

@@ -14,6 +14,8 @@ import (
 // Kind is the normalised event vocabulary from docs/02-architecture.md §2.4.
 type Kind string
 
+// The normalised event kinds. These string values are written verbatim into
+// on-disk transcripts, so renaming one breaks replay of existing runs.
 const (
 	KindRunStarted   Kind = "run.started"
 	KindMessage      Kind = "agent.message"

@@ -347,7 +347,8 @@ func (m *model) poll() {
 		m.err = err
 		return
 	}
-	defer f.Close()
+	// Read path: a Close error cannot lose data, so it is dropped deliberately.
+	defer func() { _ = f.Close() }()
 
 	fi, err := f.Stat()
 	if err != nil {

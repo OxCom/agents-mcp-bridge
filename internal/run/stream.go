@@ -15,7 +15,7 @@ import (
 // cannot parse: unparsable lines become vendor.raw events, because a vendor
 // adding a field must not take the bridge down.
 func (r *Run) streamEvents(rc io.ReadCloser, spec Spec, out *capped) bool {
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	sc := bufio.NewScanner(rc)
 	max := spec.MaxEventBytes

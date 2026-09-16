@@ -12,6 +12,9 @@ type Config struct {
 	Agents       map[string]*Adapter `yaml:"agents"`
 }
 
+// Defaults are the global ceilings every adapter and every run is capped by; an
+// adapter may narrow one, never widen it. MaxDepth and MaxContinuations are
+// pointers because absent means the built-in default while an explicit 0 forbids.
 type Defaults struct {
 	TimeoutS           int   `yaml:"timeout_s"`
 	MaxOutputBytes     int   `yaml:"max_output_bytes"`
@@ -89,6 +92,8 @@ func boolOr(p *bool, def bool) bool {
 	return *p
 }
 
+// Audit configures the security record written for every run and every refusal.
+// Bodies stores prompt and response text; left false, only digests are kept.
 type Audit struct {
 	Path        string `yaml:"path"`
 	Bodies      bool   `yaml:"bodies"`
@@ -101,6 +106,8 @@ type Audit struct {
 // one-shot; full binds to an in-tree Go adapter.
 type Tier string
 
+// A basic adapter is declared entirely in YAML. A full adapter additionally binds
+// to a stream.Parser registered in-tree, and is fatal at startup without one.
 const (
 	TierBasic Tier = "basic"
 	TierFull  Tier = "full"
@@ -109,6 +116,8 @@ const (
 // Mode selects which sandbox flag list is emitted. It is not confinement.
 type Mode string
 
+// The two sandbox flag lists an adapter may declare. Write mode additionally
+// requires defaults.allow_write_mode.
 const (
 	ModeReadOnly Mode = "read-only"
 	ModeWrite    Mode = "write"
@@ -118,6 +127,9 @@ const (
 // in a disposable worktree or land directly in the caller's tree.
 type Worktree string
 
+// Required stages a write run's changes in a disposable worktree that only
+// bridge accept lands. Off writes straight into the caller's tree and is
+// labelled UNCONFINED everywhere the run appears.
 const (
 	WorktreeRequired Worktree = "required"
 	WorktreeOff      Worktree = "off"
@@ -128,12 +140,17 @@ const (
 // SteerNone. See docs/12-spike-results.md S3.
 type Steer string
 
+// The three steering answers a vendor can give. SteerNone is the string "false"
+// because the YAML value is a boolean-or-string union.
 const (
 	SteerNone   Steer = "false"
 	SteerTrue   Steer = "true"
 	SteerQueued Steer = "queued"
 )
 
+// Adapter declares how to invoke, sandbox, stream, resume and steer exactly one
+// target agent, and surfaces as the MCP tool ask_<ID>. Its declarations may only
+// narrow the global defaults and features.
 type Adapter struct {
 	ID              string              `yaml:"-"`
 	Description     string              `yaml:"description"`
@@ -159,6 +176,9 @@ type Adapter struct {
 	ResolvedCommand string `yaml:"-"`
 }
 
+// Capabilities declare what the vendor CLI can do; tier basic forces every one to
+// false. They are independent, one never implying another, except that interactive
+// requires stream, which the loader enforces. See docs/11-domain-model.md §4.
 type Capabilities struct {
 	Stream           bool  `yaml:"stream"`
 	Resume           bool  `yaml:"resume"`
@@ -167,6 +187,8 @@ type Capabilities struct {
 	StructuredOutput bool  `yaml:"structured_output"`
 }
 
+// Invocation is one argv template plus how the prompt reaches the child. Args
+// bind placeholders as whole argv elements; no shell is ever involved.
 type Invocation struct {
 	Args []string `yaml:"args"`
 	// Prompt is stdin, stdin_stream_json or argv. argv exposes the prompt in
@@ -177,12 +199,18 @@ type Invocation struct {
 	CloseStdinAfter string `yaml:"close_stdin_after"`
 }
 
+// SteerSpec says how unsolicited text reaches a running child. Mode is the
+// transport, Record names the typed JSON record the encoder builds, never a
+// string template the caller's text is interpolated into.
 type SteerSpec struct {
 	Mode   string   `yaml:"mode"`
 	Args   []string `yaml:"args"`
 	Record string   `yaml:"record"`
 }
 
+// StreamSpec tells the adapter's stream.Parser where the vendor's events are.
+// Format and Source locate the stream; the remaining paths pull the vendor
+// session id, the final message and usage out of its records.
 type StreamSpec struct {
 	Format              string            `yaml:"format"`
 	Source              string            `yaml:"source"`

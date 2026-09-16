@@ -883,9 +883,5 @@ func newRunID() string {
 }
 
 func asRefusal(err error, out **policy.Refusal) bool {
-	r, ok := err.(*policy.Refusal)
-	if ok {
-		*out = r
-	}
-	return ok
+	return errors.As(err, out)
 }

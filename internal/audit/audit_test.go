@@ -92,8 +92,8 @@ func TestDigestsAreKeyedNotBarehash(t *testing.T) {
 	if w1.Digest(body) == w2.Digest(body) {
 		t.Fatal("two installs produced the same digest; the key is not being used")
 	}
-	if w1.Digest(body) != w1.Digest(body) {
-		t.Fatal("digest is not stable within one install")
+	if first, second := w1.Digest(body), w1.Digest(body); first != second {
+		t.Fatalf("digest is not stable within one install: %s vs %s", first, second)
 	}
 	if !strings.HasPrefix(w1.Digest(body), "hmac-sha256:") {
 		t.Fatalf("digest is not labelled: %s", w1.Digest(body))

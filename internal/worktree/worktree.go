@@ -215,7 +215,7 @@ func Apply(repoRoot, patch string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("apply patch: %v: %s", err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("apply patch: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }
@@ -278,7 +278,7 @@ func git(dir string, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
 }
