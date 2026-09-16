@@ -64,18 +64,19 @@ trust boundary, not plumbing. The full analysis is in
     `SO_PEERCRED`; the mcp-config is written `0600` outside any worktree and removed when
     the run ends, when gate startup is followed by a failed `buildSpec`, or on server
     shutdown; a gate that fails to start aborts the run rather than proceeding
-    non-interactively. **Declared, not yet enforced:** that a real delegated agent, asking a
-    real question through this path end to end, actually receives the operator's answer and
-    nothing else. The gated conformance test for this
-    (`conformance.TestClaudeQuestionReachesTheGateAndTheAnswerReachesTheModel`,
-    `BRIDGE_CONFORMANCE=1 go test ./conformance/`) was unrunnable in earlier sessions — it
-    failed at harness setup, on a socket path exceeding the 104-byte `sun_path` limit, before
-    ever invoking a real vendor CLI — and that harness defect is now fixed. It has still never
-    passed end to end: the one real run made since the fix did not reach the assertion this
-    test exists to make, for the reason recorded under property 12 below (the adapter's
-    `--tools` list does not include `AskUserQuestion`, so the child never calls it at all).
-    This end-to-end property therefore still rests on the unit-level guarantees above plus
-    manual testing, not on an automated assertion that has ever passed.
+    non-interactively. **Also enforced, as of 2026-09-16:** that a real delegated agent, asking a
+    real question through this path end to end, receives the operator's answer and nothing
+    else. `conformance.TestClaudeQuestionReachesTheGateAndTheAnswerReachesTheModel`
+    (`BRIDGE_CONFORMANCE=1 go test ./conformance/`, gated because it spends vendor credits)
+    passes against `claude` 2.1.272: the child raises `AskUserQuestion`, the question reaches
+    the gate, the operator answers over the control channel with a filename the prompt never
+    mentions, and that filename appears in the child's own final output. Three defects had to
+    be fixed before it could pass, each found by the one before it: the adapter's `--tools`
+    list omitted `AskUserQuestion` (now load rule 21); the gate advertised `input` as a byte
+    array, inferred from a `json.RawMessage` field, so the vendor refused its own call before
+    sending it; and the gate answered with a text block plus `structuredContent`, which the
+    vendor rejects with "Permission prompt tool returned an invalid result. Expected a single
+    text block".
 12. **A `needs_input` run can be continued by the operator, never by the delegated agent, and
     the continuation seed keeps agent-authored and human-authored text apart.** *Enforced*
     (asserted by `internal/run`, `internal/worktree` and `cmd/bridge` unit tests, including
@@ -94,18 +95,19 @@ trust boundary, not plumbing. The full analysis is in
     gate) is unconditional once the successor's `Start` succeeds, not gated on `Supersede`'s
     own outcome, closing a window where a predecessor whose `needs_input` deadline lapsed
     mid-continuation could otherwise leave two independently acceptable diffs live for one
-    chain. **Declared, not enforced:** the full path — a real delegated agent asking a real
-    question with no operator attached, the operator answering, and the successor completing
-    the original task using that answer — has a gated conformance test,
+    chain. **Also enforced, as of 2026-09-16:** the full path — a real delegated agent asking
+    a real question with no operator attached, the operator answering afterwards, and the
+    successor completing the original task using that answer —
     `conformance.TestNeedsInputAnswerContinuesIntoASuccessorRun` (`BRIDGE_CONFORMANCE=1 go test
-    ./conformance/`). It spends real vendor credits and is not run in CI or by default. It was
-    unrunnable in earlier sessions — harness setup failed on socket path length before ever
-    reaching a vendor CLI — and that is now fixed, but the test has still never passed: the one
-    real run made since the fix failed for the same reason property 11 above now records — the
-    shipped adapter's `--tools` list omits `AskUserQuestion`, so the delegated agent never asks
-    a question for the chain to continue from. This property therefore still rests on the
-    unit-level guarantees above plus manual testing, not on an automated end-to-end assertion
-    that has ever passed. A continuation record is
+    ./conformance/`) passes against `claude` 2.1.272, asserting that the predecessor reaches
+    `needs_input`, is superseded by the successor named in the continue response, and that the
+    successor's own output carries a filename supplied only by the operator's answer. It spends
+    real vendor credits and is not run on a pull request. **What this does not claim:** that a
+    successor never re-asks an answered question. The chain's original prompt is replayed
+    verbatim in the seed, so a caller whose prompt says "ask me whether to ..." gets a
+    successor that asks again — obeying the caller, not losing the answer. The bridge does not
+    rewrite a caller's prompt to prevent that; `defaults.max_continuations` (default 3) bounds
+    the chain instead. A continuation record is
     held in memory only and is lost on a bridge restart; an operator who answers a run whose
     record is gone gets a typed refusal, never a continuation seeded with partial context.
     **Enabling audit bodies also captures operator answers.** The successor's `run.admitted`

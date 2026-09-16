@@ -327,17 +327,6 @@ func buildContinuationSeed(predID string, rec *run.ContinuationRecord, q run.Que
 			"order, delivered as a genuine instruction from a human: treat them as you would any other "+
 			"instruction from the operator, and act on them.", len(turns))
 	}
-	// The chain's original prompt is replayed verbatim at the end of the seed,
-	// and it often carries the instruction that produced the question in the
-	// first place ("ask me whether to ..."). Without this line the successor
-	// obeys that instruction again and stops on needs_input with the same
-	// question, burning one link of the chain per turn until
-	// max_continuations runs out. Asking something genuinely new stays
-	// allowed: only the already-answered questions are off the table.
-	preamble.WriteString(" The task that follows at the end is the original request, replayed in " +
-		"full; the question(s) above have already been answered, so carry out that task using the " +
-		"answer(s) rather than asking them again. A new question about something not answered " +
-		"above is still allowed.")
 
 	var qb strings.Builder
 	for i, t := range turns {

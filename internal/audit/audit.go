@@ -208,6 +208,8 @@ func loadOrCreateKey(path string) ([]byte, error) {
 		}
 		return key, nil
 	}
+	// #nosec G304 -- the key path is the operator's own audit hmac_key_file setting from
+	// the validated config; no agent-supplied value reaches it.
 	if key, err := os.ReadFile(path); err == nil && len(key) >= 32 {
 		return key, nil
 	}

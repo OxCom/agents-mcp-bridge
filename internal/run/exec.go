@@ -144,6 +144,8 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 		}
 	}()
 
+	// #nosec G204 -- spec.Command is an adapter command from the operator's config, validated
+	// at load; spec.Args are whole argv elements from adapter.BuildArgs. No shell, ever.
 	cmd := exec.Command(spec.Command, spec.Args...)
 	cmd.Dir = spec.CWD // authoritative: five surveyed agents have no cwd flag
 	cmd.Env = spec.Env

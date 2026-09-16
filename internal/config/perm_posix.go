@@ -27,6 +27,8 @@ func checkOpenFile(f *os.File) error {
 	if !ok {
 		return errf("", "cannot determine ownership of %s", f.Name())
 	}
+	// #nosec G115 -- a POSIX uid from os.Getuid() is non-negative and fits uint32; were it
+	// ever -1 the comparison could match no real owner, so the config is refused.
 	if self := uint32(os.Getuid()); st.Uid != self {
 		return errf("", "%s is owned by uid %d, not %d; the config is the root of authority and must be yours", f.Name(), st.Uid, self)
 	}
@@ -59,6 +61,8 @@ func checkParentDir(path string) error {
 	if !ok {
 		return errf("", "cannot determine ownership of %s", resolved)
 	}
+	// #nosec G115 -- a POSIX uid from os.Getuid() is non-negative and fits uint32; were it
+	// ever -1 the comparison could match no real owner, so the directory is refused.
 	if self := uint32(os.Getuid()); st.Uid != self && st.Uid != 0 {
 		return errf("", "config directory %s is owned by uid %d, not %d or root", resolved, st.Uid, self)
 	}

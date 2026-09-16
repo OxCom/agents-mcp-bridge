@@ -72,6 +72,8 @@ func (posixEndpoint) VerifyPeer(conn net.Conn) error {
 	if credErr != nil {
 		return fmt.Errorf("peer credentials: %w", credErr)
 	}
+	// #nosec G115 -- a POSIX uid from os.Getuid() is non-negative and fits uint32; were it
+	// ever -1 the conversion could match no real peer uid, so the check fails closed.
 	if self := uint32(os.Getuid()); peerUID != self {
 		return fmt.Errorf("peer uid %d does not match server uid %d", peerUID, self)
 	}

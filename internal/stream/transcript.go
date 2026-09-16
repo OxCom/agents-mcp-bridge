@@ -34,6 +34,8 @@ func CreateTranscript(dir, runID string, limit int64) (*Transcript, error) {
 		return nil, fmt.Errorf("create transcript directory: %w", err)
 	}
 	path := filepath.Join(dir, runID+".jsonl")
+	// #nosec G304 -- dir is the bridge's own 0700 transcript directory and runID is
+	// bridge-minted crypto/rand hex, so no caller-supplied text reaches this path.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create transcript: %w", err)
@@ -113,6 +115,8 @@ func (t *Transcript) Close() error {
 
 // ReadTranscript replays a transcript from disk.
 func ReadTranscript(path string) ([]Event, error) {
+	// #nosec G304 -- callers pass the run's own transcript path as minted by
+	// CreateTranscript; the path is never accepted from, nor returned to, the calling agent.
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

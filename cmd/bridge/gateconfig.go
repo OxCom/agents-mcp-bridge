@@ -230,6 +230,8 @@ func sweepStaleGateConfigs(stateDir, runtimeDir string, log *slog.Logger) {
 // unreadable file, means ownership cannot be proven, so it is left alone —
 // unproven ownership never deletes, and is never dialed either.
 func gateConfigLive(path, runtimeDir, runID string) bool {
+	// #nosec G304 -- path is the state directory joined with a gate-*.json name enumerated
+	// there by ReadDir; it comes from the trusted filename, never from file content.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return true

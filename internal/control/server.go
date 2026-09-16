@@ -344,6 +344,8 @@ func LiveEntries(entries []IndexEntry) []IndexEntry {
 
 // ReadIndex returns the live servers for this user.
 func ReadIndex(runtimeDir string) []IndexEntry {
+	// #nosec G304 -- runtimeDir is the 0700 per-user runtime directory from platform.Paths
+	// and the file name is a constant; the delegated agent never receives this path.
 	raw, err := os.ReadFile(filepath.Join(runtimeDir, "servers.json"))
 	if err != nil {
 		return nil

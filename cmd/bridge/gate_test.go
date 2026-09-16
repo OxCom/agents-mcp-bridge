@@ -117,11 +117,9 @@ func callGateTool(t *testing.T, input map[string]any) string {
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
 	}
-	var in gateInput
-	if err := json.Unmarshal(raw, &in); err != nil {
-		t.Fatalf("unmarshal input: %v", err)
-	}
-	result, _, err := gateHandler(context.Background(), nil, in)
+	result, err := gateHandler(context.Background(), &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Name: "ask", Arguments: raw},
+	})
 	if err != nil {
 		t.Fatalf("gateHandler: %v", err)
 	}

@@ -98,6 +98,23 @@ verification steps).
   provenance via `actions/attest-build-provenance`. Write permissions are granted per job,
   never globally; `GITHUB_TOKEN` is the only credential.
 
+### Fixed
+
+- The interactive gate advertised its `input` parameter as an array of bytes, inferred from a
+  `json.RawMessage` field. A vendor MCP client validates a call against the advertised schema
+  before sending it, so a real `claude` child's `AskUserQuestion` never left the child and the
+  bridge saw a run that simply completed (`docs/12-spike-results.md` C11).
+- The gate answered a permission prompt with a text block plus `structuredContent`, which the
+  vendor refuses outright: "Permission prompt tool returned an invalid result. Expected a single
+  text block". The tool is now registered through the untyped `Server.AddTool`, with no output
+  schema (`docs/12-spike-results.md` C10).
+- A `needs_input` result carried only the question's text, dropping the options the agent
+  offered — so a caller received "What should I name the file?" with no way to know the choices
+  were `red.txt` and `blue.txt`. Both halves now reach the caller, inside the untrusted-data
+  envelope.
+- With those three fixed, the gated conformance suite passes end to end for the first time; the
+  interactive and continuation properties in `SECURITY.md` move from *declared* to *enforced*.
+
 ### Known limitations
 
 - Windows is not supported. `Paths`, `PathGuard`, `ProcessGroup` and `ControlEndpoint`

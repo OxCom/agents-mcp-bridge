@@ -54,11 +54,15 @@ func NewPaths() (Paths, error) {
 		runtime: runtimeDir,
 	}
 	for _, dir := range []string{p.state, p.runtime} {
+		// #nosec G703 -- the directory is the bridge's own state or runtime path, derived from
+		// this process's operator-owned environment; a delegated agent never sets it.
 		if err := os.MkdirAll(dir, dirMode); err != nil {
 			return nil, fmt.Errorf("create %s: %w", dir, err)
 		}
 		// MkdirAll honours umask and does nothing to an existing directory, so
 		// the mode is asserted explicitly.
+		// #nosec G703 -- the directory is the bridge's own state or runtime path, derived from
+		// this process's operator-owned environment; a delegated agent never sets it.
 		if err := os.Chmod(dir, dirMode); err != nil {
 			return nil, fmt.Errorf("restrict %s: %w", dir, err)
 		}

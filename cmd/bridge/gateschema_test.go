@@ -15,7 +15,7 @@ import (
 func gateClient(t *testing.T) *mcp.ClientSession {
 	t.Helper()
 	s := mcp.NewServer(&mcp.Implementation{Name: "bridge_gate", Version: version}, nil)
-	mcp.AddTool(s, gateTool, gateHandler)
+	s.AddTool(gateTool, gateHandler)
 	ct, st := mcp.NewInMemoryTransports()
 	if _, err := s.Connect(context.Background(), st, nil); err != nil {
 		t.Fatal(err)
@@ -72,6 +72,24 @@ func TestGateToolAcceptsAVendorQuestionPayload(t *testing.T) {
 	}
 	if verdict.Behavior != "deny" {
 		t.Errorf("behavior = %q, want deny with no bridge listening", verdict.Behavior)
+	}
+	// The vendor refuses a permission-prompt result that carries anything but
+	// one text block: structuredContent, which the SDK's generic AddTool emits
+	// for a typed output value, made a real claude child report "Permission
+	// prompt tool returned an invalid result" and retry the question.
+	if len(res.Content) != 1 {
+		t.Errorf("result carries %d content blocks, want exactly 1", len(res.Content))
+	}
+	if res.StructuredContent != nil {
+		t.Errorf("result carries structuredContent %v; a permission-prompt result must be text only", res.StructuredContent)
+	}
+}
+
+// TestGateToolAdvertisesNoOutputSchema pins the other half: an output schema is
+// what makes the SDK attach structuredContent in the first place.
+func TestGateToolAdvertisesNoOutputSchema(t *testing.T) {
+	if gateTool.OutputSchema != nil {
+		t.Errorf("gate tool advertises an output schema: %+v", gateTool.OutputSchema)
 	}
 }
 

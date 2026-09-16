@@ -85,6 +85,9 @@ func readConfig(path string, skipPermissionCheck bool) ([]byte, error) {
 			return nil, err
 		}
 	}
+	// #nosec G304 -- path is the operator's own --config flag or the platform.Paths
+	// default, never an agent-supplied value; checkParentDir ran above and checkOpenFile
+	// validates this very descriptor.
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, errf("", "open config: %v", err)

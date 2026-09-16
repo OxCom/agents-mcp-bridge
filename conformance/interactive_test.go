@@ -175,6 +175,11 @@ func startInteractiveBridge(t *testing.T, configPath, host string) (h *harness, 
 	t.Setenv("XDG_RUNTIME_DIR", runtimeHome)
 	t.Setenv("XDG_STATE_HOME", stateHome)
 
+	// Registered before the bridge starts, so it runs after the cleanup that
+	// stops it: a failed run's raw vendor transcript survives the temp dir
+	// when BRIDGE_CONFORMANCE_ARTIFACTS is set.
+	t.Cleanup(func() { captureTranscripts(t, stateHome) })
+
 	gateRuntimeDir := filepath.Join(runtimeHome, "agents-bridge")
 	gateStateDir := filepath.Join(stateHome, "agents-bridge")
 

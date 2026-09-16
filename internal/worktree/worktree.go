@@ -265,6 +265,8 @@ func git(dir string, args ...string) (string, error) {
 	defer cancel()
 
 	full := append([]string{"-c", "core.hooksPath=/dev/null"}, args...)
+	// #nosec G204 -- the binary is the constant "git" and every argument is a whole argv
+	// element built here from constants, bridge-minted run ids and resolved shas; no shell.
 	cmd := exec.CommandContext(ctx, "git", full...)
 	cmd.Dir = dir
 	cmd.Env = []string{

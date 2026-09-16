@@ -25,7 +25,7 @@ func runGate(args []string) error {
 		return errors.New("bridge gate is spawned by a bridge run, not by hand")
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "bridge_gate", Version: version}, nil)
-	mcp.AddTool(s, gateTool, gateHandler)
+	s.AddTool(gateTool, gateHandler)
 	return s.Run(context.Background(), &mcp.StdioTransport{})
 }
 
@@ -62,12 +62,25 @@ type gateInput struct {
 	Input     json.RawMessage `json:"input"`
 }
 
-// gateOutput is unused by callers (the vendor-shaped verdict travels as the
-// tool's text content, per spike C7) but AddTool needs a concrete output type
-// for schema inference; the SDK does not accept `any` there.
-type gateOutput struct{}
-
-func gateHandler(ctx context.Context, _ *mcp.CallToolRequest, in gateInput) (*mcp.CallToolResult, gateOutput, error) {
+// gateHandler is registered through the SDK's untyped Server.AddTool rather
+// than the generic mcp.AddTool. The generic form marshals a second return
+// value into the result's structuredContent and advertises an outputSchema
+// for it; a permission-prompt tool that answers with anything but one text
+// block is refused by the vendor, verbatim: "Permission prompt tool returned
+// an invalid result. Expected a single text block param with type=\"text\"
+// and a string text value." The model then retried the question and blocked
+// on a gate that had already answered the first one.
+//
+// The input is decoded here for the same reason: the typed form is what
+// supplied the structured output the vendor rejects.
+func gateHandler(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var in gateInput
+	if len(req.Params.Arguments) > 0 {
+		// A malformed payload must still produce a verdict: the child is
+		// waiting on this reply, and failing the call outright would leave a
+		// question with no answer and no denial.
+		_ = json.Unmarshal(req.Params.Arguments, &in)
+	}
 	reply := forward(gate.Ask{
 		Token:     os.Getenv("AGENTS_BRIDGE_GATE_TOKEN"),
 		RunID:     os.Getenv("AGENTS_BRIDGE_GATE_RUN"),
@@ -79,12 +92,14 @@ func gateHandler(ctx context.Context, _ *mcp.CallToolRequest, in gateInput) (*mc
 	if err != nil {
 		body = []byte(`{"behavior":"deny","message":"the supervising bridge produced no verdict"}`)
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, gateOutput{}, nil
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil
 }
 
 // forward fails closed: any transport fault denies rather than allowing.
 func forward(a gate.Ask) gate.Reply {
 	deny := gate.Reply{Behavior: "deny", Message: "the supervising bridge is unreachable"}
+	// #nosec G704 -- a local unix-domain socket, not a network address; its path reaches this
+	// process only through the per-run mcp-config env the bridge wrote, not from tool input.
 	conn, err := net.Dial("unix", os.Getenv("AGENTS_BRIDGE_GATE_SOCKET"))
 	if err != nil {
 		return deny

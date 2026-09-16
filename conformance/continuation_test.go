@@ -44,9 +44,19 @@ func TestNeedsInputAnswerContinuesIntoASuccessorRun(t *testing.T) {
 	defer c.Close()
 	assertStateIsolated(t, c, stateHome)
 
+	// The instruction to ask is conditional on not already knowing the answer,
+	// which is what makes this a test of continuation rather than of prompt
+	// obedience: an unconditional "ask me whether to ..." is still in force in
+	// the successor's seed (the chain's original prompt is replayed verbatim,
+	// docs/02-architecture.md §"continuation seed"), so a successor that asks
+	// again is obeying the caller, not losing the answer. The bridge must not
+	// rewrite a caller's prompt to prevent that; max_continuations bounds the
+	// chain instead.
 	predID := h.ask(t, "claude",
-		"Use the AskUserQuestion tool to ask me whether to name the file red.txt or blue.txt. "+
-			"Once I answer, tell me exactly which filename you decided on, quoting it verbatim.",
+		"Decide what to name a file. If you do not already know the answer, use the "+
+			"AskUserQuestion tool once to ask whether to name it red.txt or blue.txt. "+
+			"As soon as you know the answer, do not ask again: reply with exactly the "+
+			"filename you decided on, quoting it verbatim.",
 		askDeadline)
 
 	// No watcher is ever attached to this run: the point of this test is
