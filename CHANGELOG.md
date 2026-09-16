@@ -35,6 +35,14 @@ verification steps).
   (success, failure, timeout, cancellation).
 - Audit log (`internal/audit`): append-only JSONL, content digests (not bodies) by
   default, every policy refusal logged with its reason.
+- Adapter validation (`bridge validate --config <path> [--agent <id>] [--stream-fixture <file>]
+  [--json]`): loads a config through the real loader, then exercises each adapter against a
+  hidden `stub-agent` verb that impersonates a vendor CLI with no credentials and no network.
+  Reports argv building, prompt delivery by the declared mode, envelope and sanitisation,
+  timeout kill, non-zero exit handling, sandbox flag presence (`sandbox_enforced: false` is
+  reported as UNSANDBOXED), `stream.Parser` registration and fixture parsing, and the
+  interactive rules 13/18/19/20/21 — one PASS/FAIL/SKIP line each, exit 1 on any FAIL
+  (Phase 6.3).
 - Basic-tier runner: a `tier: basic` adapter is pure YAML (invoke, sandbox flags, cwd
   confinement, buffered output) with no Go code and no rebuild.
 - Two reference `tier: full` adapters, each with a registered `stream.Parser`: `claude`
@@ -92,6 +100,23 @@ verification steps).
   and runs `bridge doctor` on both operating systems, loads every documented config example,
   and — on a schedule or a release — installs the pinned vendor CLIs (`claude` 2.1.272,
   `codex-cli` 0.154.0) and asserts the binaries report those versions (Phase 6.4).
+- MIT licence (`LICENSE`), copyright Andrii Afanasiev. `.goreleaser.yaml` archives it with
+  every release artifact; until now that `LICENSE*` glob matched nothing and the archives
+  would have shipped unlicensed.
+- Windows implementations of all four platform seams (Phase 5a, partial): `Paths` with
+  owner-only DACLs, `PathGuard` over `GetFinalPathNameByHandle` rejecting UNC paths, device
+  namespaces, reserved device names and alternate data streams, `ProcessGroup` as a
+  `KILL_ON_JOB_CLOSE` job object, and `ControlEndpoint` as a named pipe with an owner-SID DACL,
+  `FILE_FLAG_FIRST_PIPE_INSTANCE` and a token-SID check in both directions. A new
+  `platform.DialControl` seam carries the client half, and the three `net.Dial("unix")` call
+  sites now go through it. **Compile-verified only — no Windows test has ever run**, and rows
+  5a.1 (config DACL refusal), 5a.4, 5a.6-5a.9 remain open. Windows binaries stay unsupported
+  previews.
+- `platform.PostStarter`, an optional interface a `ProcessGroup` implements where the OS needs
+  two-phase binding. Windows creates the child suspended so it cannot spawn a descendant before
+  the job object captures it; `AfterStart` assigns and resumes it. POSIX implements it as a
+  no-op, so `internal/run` needs no OS branch. Without the call the child would stay suspended
+  forever.
 - Release workflow (`.github/workflows/release.yml`, Phase 6.2): tag-gated (`v*`), running the
   same four stages before `goreleaser release --clean` for the six targets, with `syft` SBOMs
   per archive, keyless `cosign` signing of `checksums.txt` over GitHub OIDC, and SLSA build
@@ -112,6 +137,11 @@ verification steps).
   offered — so a caller received "What should I name the file?" with no way to know the choices
   were `red.txt` and `blue.txt`. Both halves now reach the caller, inside the untrusted-data
   envelope.
+- A continuation's successor was admitted against its predecessor's slot while the predecessor
+  still counted as live, so the live set sat at `max_concurrent_runs`+1 until `Supersede` landed
+  a moment later, and at +N with N continuations in flight. The predecessor now stops occupying
+  its slot inside the same critical section that admits the successor, which makes the cap an
+  invariant rather than an approximation.
 - With those three fixed, the gated conformance suite passes end to end for the first time; the
   interactive and continuation properties in `SECURITY.md` move from *declared* to *enforced*.
 
@@ -126,5 +156,4 @@ verification steps).
 - No tagged release yet. The release pipeline is configured end to end but has never been
   executed: no tag exists, and `goreleaser`, `cosign` and `syft` were not available in the
   environment where it was written, so the signing, SBOM and provenance steps are
-  *declared*, not *enforced*. The repository also has no `LICENSE` file, so
-  `.goreleaser.yaml`'s `LICENSE*` archive glob currently matches nothing.
+  *declared*, not *enforced*.

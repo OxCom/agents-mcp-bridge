@@ -165,6 +165,10 @@ func runServe(args []string) error {
 	b.control = ctrl
 	log.Info("control channel ready", "socket", ctrl.Socket())
 
+	// syscall.SIGTERM is defined on Windows and therefore compiles, but the OS
+	// never delivers it; os.Interrupt (Ctrl-C, and a console close event) is
+	// the signal that actually arrives there. Both are registered so each
+	// platform stops on whatever it really sends, with no OS branch here.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

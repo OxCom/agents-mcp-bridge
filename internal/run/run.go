@@ -55,8 +55,15 @@ type Run struct {
 	// session never leaves the bridge (Snapshot.VendorSession).
 	ResumedFrom string
 
-	mu                 sync.Mutex
-	state              State
+	mu    sync.Mutex
+	state State
+	// retiring marks a predecessor whose continuation successor has already
+	// been admitted against its slot. It stops counting as live from that
+	// instant, rather than from the moment Supersede lands a few microseconds
+	// later, so the live set never exceeds max_concurrent_runs. It is
+	// accounting only: no caller-facing state, snapshot or transition reads
+	// it, and Supersede still performs the real terminal transition.
+	retiring           bool
 	output             string
 	failure            string // caller-facing: generic, leaks nothing about the host
 	diag               string // operator-facing: full detail, goes to the log and audit
@@ -251,6 +258,24 @@ func (r *Run) peekState() (State, time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.state, r.Finished
+}
+
+// countsAsLive reports whether this run occupies a concurrency slot. A
+// retiring predecessor does not: its slot has already been handed to the
+// successor admitted in its place.
+func (r *Run) countsAsLive() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return !r.state.IsTerminal() && !r.retiring
+}
+
+// retire marks the run as no longer occupying a slot. Start calls it under
+// Registry.mu, in the same critical section that admits the successor, which
+// is what makes the handover atomic.
+func (r *Run) retire() {
+	r.mu.Lock()
+	r.retiring = true
+	r.mu.Unlock()
 }
 
 // expireIfDue converts a needs_input run whose deadline has passed into
@@ -530,11 +555,13 @@ func (reg *Registry) CancelAll() {
 // applied first call Registry.sweepExpired before taking the lock, so by the
 // time these run, any run that should already be failed already is.
 //
-// liveCountLocked is eventually exact, not always exact: a needs_input run
-// can cross its deadline after sweepExpired returns but before this runs, so
-// the count it returns can transiently overshoot max_concurrent_runs by one
-// until the next sweep, which the next Start, Get or List triggers. Treat
-// the cap this feeds as a safety limit, not a precise accounting invariant.
+// liveCountLocked errs high, never low: a needs_input run that crosses its
+// deadline after sweepExpired returns but before this runs still counts,
+// until the next sweep that the next Start, Get or List triggers. That
+// refuses one admission it could have allowed, which is the safe direction.
+// The other way round — admitting past the cap — was possible while a
+// continuation's predecessor stayed live between Start and Supersede, and is
+// now closed by Run.retiring (see Start).
 func (reg *Registry) pruneLocked() {
 	cutoff := time.Now().Add(-reg.retention)
 	for id, r := range reg.runs {
@@ -566,8 +593,7 @@ func (reg *Registry) liveCountExcludingLocked(excludeID string) int {
 		if excludeID != "" && id == excludeID {
 			continue
 		}
-		state, _ := r.peekState()
-		if !state.IsTerminal() {
+		if r.countsAsLive() {
 			n++
 		}
 	}

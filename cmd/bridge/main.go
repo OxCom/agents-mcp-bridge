@@ -22,6 +22,7 @@ const usage = `bridge — delegate work from one CLI coding agent to another
   bridge answer <run_id> "<text>"  answer a question the agent is waiting on
   bridge enable|disable <feature>  narrow or restore a feature on live servers
   bridge doctor                    validate config, permissions, adapters, host detection
+  bridge validate --config <path>  exercise every adapter against a stub agent; no CLI, no credentials
   bridge version                   print the version
 
 The same binary is registered in every agent's MCP config; only --host differs.
@@ -42,6 +43,12 @@ func main() {
 		err = runGate(os.Args[2:])
 	case "doctor":
 		err = runDoctor(os.Args[2:])
+	case "validate":
+		err = runValidate(os.Args[2:])
+	case stubAgentVerb:
+		// Deliberately absent from usage: `bridge validate` spawns this, and
+		// nothing else should. See stubagent.go for why it stays inert.
+		err = runStubAgent(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println(version)
 	case "help", "--help", "-h":

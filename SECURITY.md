@@ -52,7 +52,11 @@ trust boundary, not plumbing. The full analysis is in
 8. **No network listener.** MCP is stdio only, on every platform. Operator control uses a
    local IPC endpoint restricted to the current user, with the peer's identity verified on
    every connection: a Unix socket (`0600`, `SO_PEERCRED` UID check) on Linux and macOS, a
-   named pipe (user-SID DACL, client token SID check, first-instance flag) on Windows.
+   named pipe (user-SID DACL, client token SID check, first-instance flag) on Windows. The
+   POSIX half is *enforced*; the Windows half is **implemented but never executed** — it
+   compiles and vets under `GOOS=windows`, and no test has ever run it, so it is *declared*.
+   The client verifies the server's SID as well, so a squatted pipe cannot impersonate the
+   bridge; that too is unexecuted.
 9. **Repo-local config is never read.** Cloning a hostile repository cannot change policy.
 10. **Reproducible, signed releases.** Static binary, no package resolution at launch.
 11. **Interactive mode is double-gated and fails closed.** *Enforced* (asserted by
@@ -155,8 +159,11 @@ If you find another such trap, it is a valid security report.
 **v1.0 supports Linux and macOS. Windows is v1.1.** All six targets compile and are built
 in CI from the first commit, and Windows binaries are published as unsupported previews
 until the port lands — the blocker is that npm-installed `claude` and `codex` are `.cmd`
-shims, which the adapter rules refuse. The security-relevant mechanisms differ by platform
-and are implemented behind four interfaces, each with conformance tests:
+shims, which the adapter rules refuse. As of 2026-09-16 the Windows implementations of all
+four seams exist, but **nothing executes them**: CI cross-compiles Windows and runs no test
+there. A Windows binary is therefore not a supported artifact, and the mechanisms below are
+claims about code that has compiled, not about behaviour anyone has observed. The
+security-relevant mechanisms differ by platform and are implemented behind four interfaces:
 
 - **Windows has no argv.** The OS passes one command-line string that each program parses
   itself, so the bridge sets the command line explicitly with MSVCRT-correct quoting and

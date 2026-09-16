@@ -118,6 +118,17 @@ func (reg *Registry) Start(spec Spec, group platform.ProcessGroup) (*Run, error)
 		r.continuation = spec.Continuation
 	}
 	reg.runs[r.ID] = r
+	// The predecessor stops occupying a slot here, in the same critical
+	// section that admits its successor, not when Supersede lands a moment
+	// later in continueRun. Without this the live set sits at maxLive+1 for
+	// the width of that gap — harmless in isolation, but it made the cap an
+	// approximation rather than an invariant, and several continuations
+	// running at once widened it to +N.
+	if spec.ResumedFrom != "" {
+		if pred, ok := reg.runs[spec.ResumedFrom]; ok {
+			pred.retire()
+		}
+	}
 	reg.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -195,6 +206,22 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 		r.finish(StateFailed, "", "the agent could not be started",
 			fmt.Sprintf("start %s: %v", spec.Command, err), nil, false)
 		return
+	}
+
+	// Completes a two-phase process-group binding where the OS needs one.
+	// Windows creates the child suspended so it cannot spawn a descendant
+	// before the job object captures it; AfterStart assigns it to the job and
+	// only then resumes it. POSIX implements this as a no-op, so there is no
+	// OS branch here. A child that cannot be bound must not be left running
+	// outside the group: kill it and fail the run, since an unkillable tree is
+	// exactly what the group exists to prevent.
+	if ps, ok := group.(platform.PostStarter); ok {
+		if err := ps.AfterStart(); err != nil {
+			_ = group.KillAll()
+			r.finish(StateFailed, "", "the agent could not be started",
+				fmt.Sprintf("bind process group after start: %v", err), nil, false)
+			return
+		}
 	}
 
 	// The opening prompt is the first record on the same channel steering uses.

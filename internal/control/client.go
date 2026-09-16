@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/oxcom/agents-mcp-bridge/internal/platform"
 )
 
 // Client talks to one running server.
@@ -16,7 +18,10 @@ type Client struct {
 
 // Dial connects to a server's control socket.
 func Dial(socket string) (*Client, error) {
-	conn, err := net.DialTimeout("unix", socket, 2*time.Second)
+	// platform.DialControl is the OS seam: a unix socket on POSIX, a named
+	// pipe on Windows whose server SID it verifies before handing the
+	// connection back, so a squatted pipe cannot impersonate the bridge.
+	conn, err := platform.DialControl(socket, 2*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", socket, err)
 	}

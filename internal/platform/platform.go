@@ -36,6 +36,27 @@ type ProcessGroup interface {
 	KillAll() error
 }
 
+// PostStarter is an optional extension to ProcessGroup for platforms where the
+// binding cannot be completed before the process exists.
+//
+// Windows needs it. A job object can only be assigned a real process, so the
+// Windows group creates the child suspended in Attach and completes the binding
+// in AfterStart. The child does not run until AfterStart is called: forgetting
+// the call leaves the agent suspended, not unconfined.
+//
+// ProcessGroup itself is deliberately unchanged, so an implementation that needs
+// nothing after Start says nothing. Callers invoke it unconditionally:
+//
+//	if err := cmd.Start(); err != nil { ... }
+//	if ps, ok := group.(platform.PostStarter); ok {
+//		if err := ps.AfterStart(); err != nil { /* kill and fail the run */ }
+//	}
+//
+// The POSIX group implements it as a no-op so both platforms take the same path.
+type PostStarter interface {
+	AfterStart() error
+}
+
 // ControlEndpoint is the operator's local IPC channel. There is never a TCP
 // listener. VerifyPeer must reject a connection whose peer is not the same user.
 //

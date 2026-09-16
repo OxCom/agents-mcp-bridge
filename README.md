@@ -60,6 +60,7 @@ bridge serve --host claude    # registered in Claude Code's MCP config
 bridge serve --host codex     # same binary, registered in Codex
 bridge watch                  # operator TUI, second terminal
 bridge status | runs | stop | steer | answer | enable | disable | doctor
+bridge validate --config <path>   # exercise every adapter against a stub agent
 ```
 
 Tools exposed to the host agent: `ask_<agent>`, `await_agent`, `steer_agent`,
@@ -119,5 +120,8 @@ previews until the Phase 5a port lands). The target agents' own CLIs, already lo
 
 ## Licence
 
-Apache-2.0 *(provisional — must be settled before the first public release, along with
-an explicit no-telemetry statement in SECURITY.md).*
+MIT, copyright Andrii Afanasiev — see [LICENSE](LICENSE). Every release archive carries it
+(`.goreleaser.yaml`).
+
+*Still open before the first public release: an explicit no-telemetry statement in
+SECURITY.md.*

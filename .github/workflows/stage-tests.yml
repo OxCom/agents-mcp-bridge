@@ -10,16 +10,18 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
-          # "latest" can resolve to a golangci-lint built with an older Go
-          # toolchain than go.mod's Go 1.26, which it then refuses to run
-          # against. v2.13.2 is built with a Go 1.26.x toolchain and is the
-          # first v2 release, matching this repo's `version: "2"` .golangci.yml.
+          # Keep this pinned, never "latest": "latest" can resolve to a
+          # golangci-lint built with an older Go toolchain than go.mod's Go
+          # 1.26, which it then refuses to run against. v2.13.2 is built with a
+          # Go 1.26.x toolchain. The action's v7 dropped golangci-lint v1 and
+          # its v8 requires >= v2.1.0, so v2.13.2 satisfies v9 as well and
+          # still matches this repo's `version: "2"` .golangci.yml.
           version: v2.13.2
       # `make all` treats unformatted code as a failure, and nothing else in CI
       # checks it, so a gofmt drift would only surface on a developer's machine.
@@ -39,8 +41,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
           check-latest: true

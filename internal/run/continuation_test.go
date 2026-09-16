@@ -216,3 +216,62 @@ func TestCheckDepthRefusesAtTheConfiguredCap(t *testing.T) {
 		t.Fatalf("depth 2 against max 3 must be allowed: %v", err)
 	}
 }
+
+// TestPredecessorStopsOccupyingItsSlotWhenTheSuccessorIsAdmitted pins the
+// accounting half of the handover. Admitting the successor against the
+// predecessor's slot (TestContinuationSuccessorInheritsThePredecessorsSlot)
+// used to leave BOTH counted as live until continueRun's Supersede landed a
+// moment later, so the live set sat at maxLive+1 for the width of that gap,
+// and at maxLive+N with N continuations in flight. The predecessor now stops
+// counting inside the same critical section that admits the successor: at
+// maxLive=2, one continuation plus one ordinary run is exactly two live runs,
+// and a third is refused.
+func TestPredecessorStopsOccupyingItsSlotWhenTheSuccessorIsAdmitted(t *testing.T) {
+	reg := NewRegistry(2, time.Hour)
+
+	pred := NewForTest("pred-run")
+	if _, err := pred.Ask(Question{ID: "toolu_1", Tool: "AskUserQuestion", Text: "?"}); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	pred.NeedsInput("no operator channel was available to answer a question")
+	reg.mu.Lock()
+	reg.runs[pred.ID] = pred
+	reg.mu.Unlock()
+
+	// spec() derives RunID from the test name, so each Start here needs its
+	// own id: identical ids collide on one registry key and the count never
+	// rises, which would make this test pass against the defect it pins.
+	successorSpec := spec(t, "sleep", "10")
+	successorSpec.RunID = "run-successor"
+	successorSpec.ResumedFrom = pred.ID
+	successor, err := reg.Start(successorSpec, platform.NewProcessGroup())
+	if err != nil {
+		t.Fatalf("successor must inherit the predecessor's slot: %v", err)
+	}
+	defer successor.Cancel()
+
+	// The predecessor has no child left — needs_input means the process is
+	// already gone — and its slot now belongs to the successor, so the second
+	// slot is genuinely free and this ordinary run must be admitted.
+	otherSpec := spec(t, "sleep", "10")
+	otherSpec.RunID = "run-other"
+	other, err := reg.Start(otherSpec, platform.NewProcessGroup())
+	if err != nil {
+		t.Fatalf("the predecessor must stop occupying a slot once its successor is admitted: %v", err)
+	}
+	defer other.Cancel()
+
+	// Two live runs is the cap: a third must be refused, so the handover
+	// frees exactly one slot rather than disabling the accounting.
+	thirdSpec := spec(t, "echo", "hi")
+	thirdSpec.RunID = "run-third"
+	if _, err := reg.Start(thirdSpec, platform.NewProcessGroup()); !errors.Is(err, ErrConcurrencyLimit) {
+		t.Fatalf("a third run must exceed maxLive=2, got err = %v", err)
+	}
+
+	// Retirement is accounting only: the caller-facing state stays
+	// needs_input until Supersede performs the real transition.
+	if s := pred.Snapshot(); s.State != StateNeedsInput {
+		t.Fatalf("predecessor state = %q, want needs_input until Supersede lands", s.State)
+	}
+}

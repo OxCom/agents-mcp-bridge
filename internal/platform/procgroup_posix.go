@@ -34,6 +34,11 @@ func (g *posixGroup) Attach(cmd *exec.Cmd) error {
 	return nil
 }
 
+// AfterStart satisfies PostStarter. Setpgid is applied by the kernel at fork
+// time, so the POSIX binding is already complete when Start returns and there is
+// nothing left to do.
+func (g *posixGroup) AfterStart() error { return nil }
+
 func (g *posixGroup) KillAll() error {
 	if g.attached == nil || g.attached.Process == nil {
 		return nil // never started; nothing to reap

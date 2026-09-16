@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,7 +255,7 @@ func gateConfigLive(path, runtimeDir, runID string) bool {
 	if filepath.Clean(socket) != want {
 		return true // not ours: never dial a path this process did not compute itself
 	}
-	conn, err := net.DialTimeout("unix", want, 200*time.Millisecond)
+	conn, err := platform.DialControl(want, 200*time.Millisecond)
 	if err != nil {
 		return false // nothing is listening: orphaned
 	}

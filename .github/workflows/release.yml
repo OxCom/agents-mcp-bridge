@@ -65,12 +65,12 @@ jobs:
       # Build provenance attestations tied to the same OIDC identity.
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # goreleaser derives the version and the previous-tag range from git
           # history; a shallow clone has neither.
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
       # The `sboms:` stanza shells out to syft per archive; without it on PATH
@@ -79,8 +79,8 @@ jobs:
       # The `signs:` stanza shells out to cosign. Only checksums.txt is signed:
       # every archive and SBOM is listed there with its sha256, so one signature
       # covers all of them transitively and there is one artifact to verify.
-      - uses: sigstore/cosign-installer@v3
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: sigstore/cosign-installer@v4
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
           args: release --clean
@@ -93,7 +93,7 @@ jobs:
       # binds each published archive and the checksum file to this workflow run
       # and this repository, under the same OIDC identity cosign signs with.
       # Verify with: gh attestation verify <archive> --repo OxCom/agents-mcp-bridge
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/*.tar.gz

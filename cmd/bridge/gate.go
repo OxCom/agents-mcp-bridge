@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"os"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/oxcom/agents-mcp-bridge/internal/gate"
+	"github.com/oxcom/agents-mcp-bridge/internal/platform"
 )
 
 // runGate is the server the DELEGATED agent talks to. It holds no config, writes
@@ -98,9 +98,11 @@ func gateHandler(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolRe
 // forward fails closed: any transport fault denies rather than allowing.
 func forward(a gate.Ask) gate.Reply {
 	deny := gate.Reply{Behavior: "deny", Message: "the supervising bridge is unreachable"}
-	// #nosec G704 -- a local unix-domain socket, not a network address; its path reaches this
-	// process only through the per-run mcp-config env the bridge wrote, not from tool input.
-	conn, err := net.Dial("unix", os.Getenv("AGENTS_BRIDGE_GATE_SOCKET"))
+	// #nosec G704 -- a local unix socket or named pipe, not a network address; its path
+	// reaches this process only through the per-run mcp-config env the bridge wrote, not
+	// from tool input. platform.DialControl is the OS seam and, on Windows, verifies the
+	// server's SID before returning the connection.
+	conn, err := platform.DialControl(os.Getenv("AGENTS_BRIDGE_GATE_SOCKET"), 5*time.Second)
 	if err != nil {
 		return deny
 	}
