@@ -3,11 +3,13 @@ package gate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -204,7 +206,13 @@ func TestGateRefusesOversizedRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if _, err := conn.Write(oversized); err != nil {
+	// The server may close the connection mid-write, once it has read enough
+	// to know the request is oversized. On Linux the whole payload fits in
+	// the socket buffer and the write completes first; on macOS the buffer is
+	// smaller and the write fails with EPIPE. Both are the refusal this test
+	// asserts, so only an unrelated write error is a failure.
+	if _, err := conn.Write(oversized); err != nil &&
+		!errors.Is(err, syscall.EPIPE) && !errors.Is(err, syscall.ECONNRESET) {
 		t.Fatalf("write: %v", err)
 	}
 

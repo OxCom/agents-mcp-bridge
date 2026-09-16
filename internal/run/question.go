@@ -47,7 +47,10 @@ var (
 	// question. One run asks one question at a time, so a second Ask is
 	// refused rather than queued or allowed to displace the first.
 	ErrQuestionPending = errors.New("a question is already pending for this run")
-	ErrNoQuestion      = errors.New("this run is not waiting on a question")
+	// ErrNoQuestion is returned when an answer arrives for a run that holds
+	// no pending question at all, which is what separates it from
+	// ErrQuestionChanged.
+	ErrNoQuestion = errors.New("this run is not waiting on a question")
 	// ErrQuestionChanged is returned when an answer names a question id that
 	// is no longer the one pending — resolved another way (timeout, CLI,
 	// another TUI) and, in the dangerous case, already replaced by a new

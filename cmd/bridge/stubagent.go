@@ -164,7 +164,7 @@ func emitFile(path string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("stub-agent: --emit: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)

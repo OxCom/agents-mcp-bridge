@@ -29,3 +29,10 @@ formatters:
   enable:
     - gofmt
     - goimports
+
+# Defaults are 50 per linter and 3 per identical message, which hides the rest
+# of a finding class until the first three are fixed: three CI rounds to see one
+# errcheck sweep. Report everything in one run instead.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

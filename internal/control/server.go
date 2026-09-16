@@ -100,7 +100,7 @@ func (s *Server) accept() {
 }
 
 func (s *Server) serve(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Identity is checked before a single byte is read: a peer that is not this
 	// user gets nothing, not even a parse error to probe with.

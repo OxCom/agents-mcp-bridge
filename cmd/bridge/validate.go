@@ -530,7 +530,7 @@ func (v *validator) exercise(a *config.Adapter, lead []string, prompt string, ti
 		if !v.argvOK {
 			return runResult{}, errArgvAlreadyReported
 		}
-		return runResult{}, fmt.Errorf("the run was refused before it started: %v", err)
+		return runResult{}, fmt.Errorf("the run was refused before it started: %w", err)
 	}
 	transcript := ""
 	if r, err := b.runs.Get(started.RunID); err == nil {
@@ -538,7 +538,7 @@ func (v *validator) exercise(a *config.Adapter, lead []string, prompt string, ti
 	}
 	res, out, err := b.awaitAgent(ctx, nil, awaitInput{RunID: started.RunID, TimeoutS: 60})
 	if err != nil {
-		return runResult{}, fmt.Errorf("await failed: %v", err)
+		return runResult{}, fmt.Errorf("await failed: %w", err)
 	}
 	var sb strings.Builder
 	for _, c := range res.Content {
@@ -576,7 +576,7 @@ func (v *validator) newStubBridge(a *config.Adapter, lead []string, timeoutS int
 
 	engine, err := policy.New(&cfg, platform.NewPathGuard(), "", 0)
 	if err != nil {
-		return nil, nil, fmt.Errorf("the policy engine will not start for this config: %v", err)
+		return nil, nil, fmt.Errorf("the policy engine will not start for this config: %w", err)
 	}
 
 	dir, err := os.MkdirTemp(v.scratch, "run-")
