@@ -1,0 +1,2 @@
+# Docs are scanned by tests that anchor on LF fences; a CRLF checkout breaks them.
+*.md text eol=lf

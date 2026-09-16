@@ -62,19 +62,22 @@ func pipeName(endpoint string) (string, error) {
 // cannot alter the namespace. A backslash would create a sub-path, and any
 // other punctuation is simply dropped rather than trusted.
 //
-// The dot is dropped with the rest: allowing it let "..\..\evil" through as
-// "..-..-evil", which still carries a path-shaped token. Uniqueness comes from
-// the digest pipeName appends, so the readable tail loses nothing by being
-// restricted to [a-z0-9_-].
+// A single dot survives, so a base name like "1234.sock" stays recognisable to
+// an operator, but never two in a row: allowing that let "..\..\evil" through
+// as "..-..-evil", which still carries a path-shaped token.
 func sanitisePipeComponent(s string) string {
 	var b strings.Builder
+	var last rune
 	for _, r := range s {
+		out := '-'
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('-')
+		case r == '.' && last == '.':
+			// A second consecutive dot would rebuild "..".
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			out = r
 		}
+		b.WriteRune(out)
+		last = out
 		if b.Len() >= 64 {
 			break
 		}
