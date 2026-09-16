@@ -12,14 +12,14 @@ jobs:
   trufflehog:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The scan walks git history, which a shallow clone does not contain.
           fetch-depth: 0
       # Pinned to a release tag rather than @main because an action that reads
       # the whole repository is a supply-chain surface of its own: @main would
       # let an upstream compromise run here without any change on our side.
-      - uses: trufflesecurity/trufflehog@v3.97.4
+      - uses: trufflesecurity/trufflehog@363923b901c911a9164f50b6c423f47c15372b1c # v3.97.4
         with:
           path: ./
           extra_args: --results=verified,unknown
@@ -29,12 +29,12 @@ jobs:
   gitleaks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Gitleaks reads the working tree here, but history stays available
           # for a future switch to `gitleaks git`.
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       # gitleaks/gitleaks-action is deliberately avoided: since v2 it demands a
@@ -44,7 +44,10 @@ jobs:
       # repo already installs gosec and govulncheck.
       - name: gitleaks
         run: |
-          go install github.com/zricethezav/gitleaks/v8@latest
+          # Pinned, never "latest": a scanner that changes under CI turns an
+          # unchanged tree red, which is what a new gosec rule did on
+          # 2026-09-16. Bump deliberately.
+          go install github.com/zricethezav/gitleaks/v8@v8.30.1
           # --redact keeps a matched secret out of the public workflow log,
           # which is world-readable for a public repository.
           gitleaks dir . --redact --no-banner
@@ -55,12 +58,15 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       - name: govulncheck
         run: |
+          # Deliberately NOT pinned, unlike gosec and gitleaks above: a new
+          # finding here is a vulnerability this module actually reaches, which
+          # is the point of the job rather than a surprise rule change.
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
@@ -69,11 +75,13 @@ jobs:
   gosec:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       - name: gosec
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          # Pinned for the reason in the gitleaks step: gosec v2.29.0 added
+          # G703, which failed this repo on code no commit had touched.
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
           gosec -exclude-generated ./...

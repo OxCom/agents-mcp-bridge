@@ -24,8 +24,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       - if: runner.os != 'Windows'
@@ -98,8 +98,8 @@ jobs:
   spec-consistency:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       - run: go test ./internal/config/ -run TestDocumentedExamplesLoad -v
@@ -120,11 +120,11 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
       # The supported versions: codex-cli 0.154.0 is the binary every spike ran
@@ -188,10 +188,16 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\projects" | Out-Null
           $out = (.\bridge.exe doctor --host claude --config examples/config.yaml `
                     --insecure-skip-permission-check 2>&1 | Out-String)
+          # Captured immediately: the pwsh wrapper GitHub appends ends the step
+          # with `exit $LASTEXITCODE`, so a refusal this job EXPECTS would
+          # otherwise fail the step after both assertions passed.
+          $code = $LASTEXITCODE
           Write-Host $out
-          if ($LASTEXITCODE -eq 0) {
+          if ($code -eq 0) {
             throw "doctor accepted an npm-installed CLI on Windows; the .cmd shim must be refused (v1.1)"
           }
           if ($out -notmatch 'script launcher') {
             throw "doctor failed for some other reason than the shim refusal"
           }
+          Write-Host "doctor refused the npm .cmd shim, as v1.1 requires"
+          exit 0
