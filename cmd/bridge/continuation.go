@@ -17,7 +17,7 @@ import (
 // SupersededError is returned by get_changes on a run that has been
 // continued: the diff it would have returned no longer exists here — it
 // carried forward into the chain, and exactly one acceptable diff exists per
-// chain (docs/superpowers/specs/2026-09-15-continuation-design.md §4, §6).
+// chain (docs/02 §2.3a).
 type SupersededError struct {
 	RunID       string
 	SuccessorID string

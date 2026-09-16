@@ -24,8 +24,7 @@ const (
 	// StateSuperseded is a predecessor that has been continued: a successor
 	// run now carries the chain forward. Unlike StateNeedsInput it IS
 	// terminal, so it frees its max_concurrent_runs slot immediately and
-	// becomes prunable on the normal retention clock (docs/superpowers/specs/
-	// 2026-09-15-continuation-design.md §3).
+	// becomes prunable on the normal retention clock (docs/11 §3).
 	StateSuperseded State = "superseded"
 )
 
@@ -113,8 +112,7 @@ type Run struct {
 	// continuation holds what a successor's seed needs, attached at
 	// admission (Spec.Continuation) and consumed exactly once by
 	// TakeContinuation. It is never persisted to disk and does not survive a
-	// bridge restart, by design (docs/superpowers/specs/
-	// 2026-09-15-continuation-design.md §3): prompt bodies at rest would be a
+	// bridge restart, by design (docs/02 §2.3a): prompt bodies at rest would be a
 	// new data-retention commitment in a project that audits digests, not
 	// bodies.
 	continuation *ContinuationRecord
@@ -165,8 +163,7 @@ type Snapshot struct {
 	ResumedFrom string
 	// SupersededBy is the successor's run id once State is StateSuperseded;
 	// empty otherwise. list_runs and bridge runs surface it as
-	// superseded_by (docs/superpowers/specs/2026-09-15-continuation-design.md
-	// §6).
+	// superseded_by (docs/02 §2.3a).
 	SupersededBy string
 }
 
@@ -582,8 +579,7 @@ func (reg *Registry) liveCountLocked() int {
 // predecessor's own needs_input rest state already occupies, instead of
 // requiring that slot freed in advance by retiring the predecessor first.
 // That is what lets Run.Supersede run AFTER Start succeeds rather than
-// before it (docs/superpowers/specs/2026-09-15-continuation-design.md;
-// cmd/bridge/continuation.go): the predecessor's slot is never actually
+// before it (docs/02 §2.3a; cmd/bridge/continuation.go): the predecessor's slot is never actually
 // vacated by this exclusion, only treated as available to its own successor,
 // so nothing here can be used to admit more than one extra run per
 // predecessor — every other non-terminal run still counts normally.

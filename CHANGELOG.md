@@ -3,9 +3,7 @@
 All notable changes to this project are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project has not yet made a
 tagged release, so there are no version headings or dates below — only the accumulated
-`Unreleased` state of the tree, grouped by the roadmap phase that produced it (see
-[`docs/08-roadmap.md`](docs/08-roadmap.md) for the full phase descriptions and their
-verification steps).
+`Unreleased` state of the tree.
 
 ## Unreleased
 
@@ -67,10 +65,10 @@ verification steps).
   detection; a TUI answer panel; an `elicitation/create` fallback; a fail-closed
   `needs_input` result carrying a run-id `session_handle` when no operator channel is
   attached. Shipped for the `claude` adapter only — `codex exec` has no correlated
-  approval request. `docs/08-roadmap.md`'s Phase 3 status note records that question
-  attribution (`TargetAgent`) is not yet carried directly on `question.*` audit entries,
-  only reconstructible via a `RunID` join, and that the two gated conformance tests
-  exercising a live question/approval through the gate have not yet been run.
+  approval request. `question.*` audit entries carry the asking agent in `TargetAgent`,
+  looked up from the run at write time; that lookup fails open, so a `question.asked`
+  raised before the run registers is audited with an empty `TargetAgent` rather than
+  blocking the write.
 - Mid-run steering (Phase 4): `bridge steer` (operator, uncapped) and `steer_agent` MCP
   tool (agent, capped by `max_agent_steers`), steer origin recorded in the audit log,
   `steer: false` adapters returning `unsupported_capability`. Codex has no steer channel
@@ -147,12 +145,12 @@ verification steps).
 
 ### Known limitations
 
-- Windows is not supported. `Paths`, `PathGuard`, `ProcessGroup` and `ControlEndpoint`
-  Windows constructors compile but return errors; the port is scoped as Phase 5a,
-  targeting v1.1.
-- Interactive mode is Claude Code only, and its end-to-end behaviour against a real
-  vendor CLI is *declared*, not *enforced* — see `SECURITY.md` and the Phase 3 status
-  note above.
+- Windows is not supported. The `Paths`, `PathGuard`, `ProcessGroup` and `ControlEndpoint`
+  Windows implementations exist and cross-compile, but no test has ever executed them and
+  no Windows machine has run the binary; config permission checking on Windows still
+  refuses rather than guessing. The port targets v1.1.
+- Interactive mode is Claude Code only. `codex exec` has no correlated approval request,
+  so a Codex run gets the fail-closed `needs_input` path instead.
 - No tagged release yet. The release pipeline is configured end to end but has never been
   executed: no tag exists, and `goreleaser`, `cosign` and `syft` were not available in the
   environment where it was written, so the signing, SBOM and provenance steps are

@@ -103,8 +103,7 @@ func (rec *ContinuationRecord) CheckDepth(maxContinuations int) error {
 // It clears any surviving continuation record (a superseded run cannot be
 // continued a second time; its own successor already exists) and emits
 // exactly one audit transition, run.superseded, carrying the successor id —
-// docs/superpowers/specs/2026-09-15-continuation-design.md §8 and docs/11
-// §3 invariant 5 (every transition is one audit entry).
+// docs/11 §3 invariant 5 (every transition is one audit entry).
 func (r *Run) Supersede(successorID string) error {
 	r.mu.Lock()
 	if r.state != StateNeedsInput {

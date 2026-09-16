@@ -1,10 +1,9 @@
-# goreleaser configuration for agents-mcp-bridge (roadmap Phase 6.2).
+# goreleaser configuration for agents-mcp-bridge.
 #
 # Targets mirror the Makefile's `cross` target exactly (linux/darwin/windows x
 # amd64/arm64, six builds total). Windows builds are published as UNSUPPORTED
-# PREVIEWS per docs/08-roadmap.md Phase 6.2: the port is not done until Phase 5a,
-# so these binaries build and run `bridge doctor`-level checks but are not the
-# supported v1.0 artifact.
+# PREVIEWS: the port is not done, so these binaries build and run `bridge
+# doctor`-level checks but are not the supported v1.0 artifact.
 #
 # UNVERIFIED: this file has not been run against a real goreleaser release yet
 # (no tag exists, and cosign/syft are not installed in this environment). It is
@@ -103,8 +102,8 @@ release:
   mode: replace
   header: |
     Windows binaries in this release are **unsupported previews**: the Windows
-    port (roadmap Phase 5a) has not landed. They build and pass unit tests but
-    are not the supported v1.0 artifact — see docs/08-roadmap.md.
+    port has not landed. They build and pass unit tests but are not the
+    supported v1.0 artifact — see SECURITY.md.
   footer: |
     See CHANGELOG.md for what changed and SECURITY.md for which security
     properties are enforced (asserted by a test) versus declared.

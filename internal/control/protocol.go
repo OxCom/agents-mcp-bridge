@@ -85,7 +85,7 @@ const (
 	VerbAnswer = "answer"
 	// Continue creates a continuation successor for a run resting in
 	// needs_input, carrying the operator's answer as the seed's untrusted-
-	// data envelope (docs/superpowers/specs/2026-09-15-continuation-design.md
+	// data envelope (docs/02 §2.3a
 	// §7). Operator only, same as Answer: the calling agent has no route to
 	// this verb.
 	VerbContinue = "continue"

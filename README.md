@@ -3,13 +3,11 @@
 One MCP server that lets any CLI coding agent delegate work to any *other* CLI coding
 agent — safely, visibly, and steerably.
 
-> **Status: implemented through Phase 5, plus Phase 3 interactive mode.** Two reference
-> adapters (`claude`, `codex`) ship. Build, `go vet`, `-race` tests and all six cross-build
-> targets are green. See [`docs/08-roadmap.md`](docs/08-roadmap.md) for what each phase
-> covers and [`SECURITY.md`](SECURITY.md) for which properties are *enforced* (asserted by
-> a test) versus *declared* (true by design, not yet exercised end to end by an automated
-> test). Not yet done: Windows support (Phase 5a, targets v1.1) and the release-readiness
-> items in Phase 6.
+> **Status: pre-release, no tagged version yet.** Two reference adapters (`claude`,
+> `codex`) ship. Build, `go vet`, `-race` tests and all six cross-build targets are green.
+> See [`SECURITY.md`](SECURITY.md) for which properties are *enforced* (asserted by a test)
+> versus *declared* (true by design, not yet exercised end to end by an automated test).
+> Windows is not supported: its binaries are unsupported previews and target v1.1.
 
 ```
 Claude Code ──MCP──► bridge ──argv──► Codex        you ──► bridge watch
@@ -49,9 +47,6 @@ boundary and as a supervised activity:
   config and labelled UNCONFINED wherever the run appears.
 - **Secure by construction.** Read-only default, working-directory allowlist, no shell,
   no credential parsing, untrusted-output envelope, audit log, no network listener.
-
-See [`docs/06-prior-art.md`](docs/06-prior-art.md) for what the existing tools do and do
-not do.
 
 ## Quick shape
 
@@ -98,16 +93,13 @@ dispatch only — never on a pull request from a fork.
 | [01 Requirements](docs/01-requirements.md) | Functional, security and non-functional requirements; scope |
 | [02 Architecture](docs/02-architecture.md) | Components, event model, tool surface, reference adapters |
 | [03 Threat model](docs/03-threat-model.md) | Assets, trust boundaries, threats and controls, residual risk |
-| [04 Configuration](docs/04-config-schema.md) | Config file, adapter schema, placeholder rules, operator commands |
-| [05 Language choice](docs/05-language-choice.md) | Why Go, and why not Node/Rust/Python |
-| [06 Prior art](docs/06-prior-art.md) | Survey of existing tools and what they are missing |
+| [04 Configuration](docs/04-config-schema.md) | Where config lives, host registration, worked config files, placeholder rules, operator commands |
 | [07 Agent capability matrix](docs/07-agent-capability-matrix.md) | What each CLI agent supports: streaming, resume, injection, sandbox |
-| [08 Execution plan](docs/08-roadmap.md) | Phased build plan with a verification per step |
-| [09 Differentiation](docs/09-differentiation.md) | How this differs from prior art |
 | [10 MCP contract](docs/10-mcp-contract.md) | Tool contracts, the async progress/elicitation problem, three interaction types |
 | [11 Domain model](docs/11-domain-model.md) | Vocabulary, entities, run state machine, capability semantics, package layout |
 | [12 Spike results](docs/12-spike-results.md) | Observed vendor behaviour, and the eight assumptions it falsified |
 | [13 Adapter authoring guide](docs/13-adapter-authoring.md) | How to write a `tier: basic` adapter in YAML, and what `tier: full` additionally requires |
+| [14 Settings reference](docs/14-settings-reference.md) | Every configuration key: type, default, effect, and the rule that rejects a bad value |
 | [`schema/config.schema.json`](schema/config.schema.json) | Normative config schema, plus the semantic rules JSON Schema cannot express |
 | [SECURITY.md](SECURITY.md) | Security policy, claims, non-claims, disclosure |
 | [CHANGELOG.md](CHANGELOG.md) | Notable changes, Keep a Changelog format |

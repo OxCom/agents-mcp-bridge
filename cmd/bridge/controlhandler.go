@@ -149,8 +149,7 @@ func (b *bridge) Answer(runID, questionID, text string) error {
 
 // Continue creates a continuation successor for a run resting in needs_input.
 // See cmd/bridge/continuation.go for the seed construction and the
-// predecessor-retirement transaction
-// (docs/superpowers/specs/2026-09-15-continuation-design.md).
+// predecessor-retirement transaction (docs/02 §2.3a).
 func (b *bridge) Continue(runID, text string) (string, error) {
 	return b.continueRun(runID, text)
 }

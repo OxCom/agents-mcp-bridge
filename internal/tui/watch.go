@@ -203,7 +203,7 @@ func (m *model) sendAnswer(text string) {
 		if m.questionResting {
 			// The run has already stopped: there is no live question left to
 			// resolve, so this creates a continuation instead
-			// (docs/superpowers/specs/2026-09-15-continuation-design.md §7).
+			// (docs/02 §2.3a).
 			// The successor's id is not returned here — Send reports only
 			// success or failure — it is discovered on the next poll via
 			// info.SupersededBy, same as any other TUI or the `bridge

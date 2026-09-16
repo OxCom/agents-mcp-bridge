@@ -57,8 +57,7 @@ func TestContinuationSuccessorInheritsThePredecessorsSlot(t *testing.T) {
 // registry's only other slot) from outside this package.
 
 // TestSupersedeFreesTheSlotAndAuditsOnce covers the terminal half of
-// StateSuperseded (docs/superpowers/specs/2026-09-15-continuation-design.md
-// §3 and §8): a superseded run must stop occupying its max_concurrent_runs
+// StateSuperseded (docs/11 §3): a superseded run must stop occupying its max_concurrent_runs
 // slot immediately, unlike needs_input, and must emit exactly one
 // run.superseded audit transition carrying the successor id.
 func TestSupersedeFreesTheSlotAndAuditsOnce(t *testing.T) {

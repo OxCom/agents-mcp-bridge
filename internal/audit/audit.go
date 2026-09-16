@@ -44,7 +44,7 @@ type Entry struct {
 	Reason          string    `json:"reason,omitempty"`       // why a refusal happened
 	Message         string    `json:"message,omitempty"`
 	// ResumedFrom is the predecessor's run id on a continuation's run.admitted
-	// entry (docs/superpowers/specs/2026-09-15-continuation-design.md §8).
+	// entry (docs/02 §2.3a).
 	// Empty for an ordinary run.
 	ResumedFrom string `json:"resumed_from,omitempty"`
 

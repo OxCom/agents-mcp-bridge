@@ -37,7 +37,7 @@ func runSteerCmd(args []string) error {
 
 // runAnswerCmd answers a question the agent is waiting on, or — if the run
 // has already stopped in needs_input — creates a continuation instead
-// (docs/superpowers/specs/2026-09-15-continuation-design.md §7). Operator
+// (docs/02 §2.3a). Operator
 // only: this command's control-channel verbs (VerbAnswer, VerbContinue) are
 // never reachable from the MCP surface a delegated agent holds.
 //

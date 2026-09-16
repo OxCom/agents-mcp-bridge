@@ -15,10 +15,10 @@ import "os"
 // Options.SkipPermissionCheck bypasses this, deliberately.
 func checkOpenFile(f *os.File) error {
 	return errf("", "config permission checking is not implemented on Windows (v1.1); "+
-		"refusing to assume %s is protected. See docs/08-roadmap.md phase 5a", f.Name())
+		"refusing to assume %s is protected", f.Name())
 }
 
 func checkParentDir(path string) error {
 	return errf("", "config directory permission checking is not implemented on Windows (v1.1); "+
-		"refusing to assume %s is protected. See docs/08-roadmap.md phase 5a", path)
+		"refusing to assume %s is protected", path)
 }

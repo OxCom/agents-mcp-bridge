@@ -23,7 +23,7 @@ body:
       options:
         - Linux
         - macOS
-        - Windows (unsupported preview — see docs/08-roadmap.md Phase 5a)
+        - Windows (unsupported preview, v1.1)
     validations:
       required: true
 

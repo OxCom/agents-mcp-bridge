@@ -95,9 +95,9 @@ func (b *bridge) resolver(runID string) gate.Resolver {
 //
 // Every entry also carries TargetAgent so an operator reading the log can
 // tell which delegated agent asked, matching the attribution the TUI panel
-// and the elicitation prompt already carry (roadmap 3.5). The lookup can
-// fail — the gate starts, and can receive a request, before b.runs.Start
-// registers the run it serves (docs/superpowers spec §3) — in which case the
+// and the elicitation prompt already carry. The lookup can fail — the gate
+// starts, and can receive a request, before b.runs.Start registers the run
+// it serves (docs/02 §2.3a) — in which case the
 // entry is written with no TargetAgent rather than blocking the audit write
 // on a run that does not exist yet.
 func (b *bridge) auditQuestion(runID string) func(event, detail string) {

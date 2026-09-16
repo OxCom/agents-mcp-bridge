@@ -12,9 +12,8 @@ body:
         one you want added to the repo's examples.
 
         See [`docs/07-agent-capability-matrix.md`](../../docs/07-agent-capability-matrix.md)
-        for the capability survey format this project uses, and the Phase 7 candidate
-        list in [`docs/08-roadmap.md`](../../docs/08-roadmap.md) — your agent may already
-        be tracked there.
+        for the capability survey format this project uses — your agent may already
+        be surveyed there.
 
   - type: input
     id: cli
