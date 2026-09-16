@@ -1,4 +1,4 @@
-# agents-mcp-bridge
+# Agents MCP bridge
 
 One MCP server that lets any CLI coding agent delegate work to any *other* CLI coding
 agent — safely, visibly, and steerably.
