@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
-	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -30,8 +30,14 @@ func TestGateConfigIsOwnerOnlyAndCarriesTheTokenOutOfBandOfTheEnvironment(t *tes
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("mcp-config mode = %o, want 600", perm)
+	// POSIX only. Windows reports 0666 for every file regardless of its ACL,
+	// so the mode bits prove nothing there; the control on Windows is the
+	// owner-only DACL platform.WriteOwnerOnlyFile applies, which no test reads
+	// back yet. Assert the mode where the mode is the control.
+	if runtime.GOOS != "windows" {
+		if perm := fi.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("mcp-config mode = %o, want 600", perm)
+		}
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -64,7 +70,8 @@ func TestGateConfigIsOwnerOnlyAndCarriesTheTokenOutOfBandOfTheEnvironment(t *tes
 
 // interactiveAdapter builds an adapter that would be interactive if both
 // capability and feature agreed. capable toggles capabilities.interactive.
-func interactiveAdapter(capable bool) *config.Adapter {
+func interactiveAdapter(t *testing.T, capable bool) *config.Adapter {
+	t.Helper()
 	no := false
 	return &config.Adapter{
 		ID:              "interactive-agent",
@@ -76,9 +83,9 @@ func interactiveAdapter(capable bool) *config.Adapter {
 		Interactive: map[string][]string{
 			"read-only": {"--mcp-config={{gate_config}}"},
 		},
-		ResolvedCommand: "/bin/true",
+		ResolvedCommand: self(t),
 		Invoke: &config.Invocation{
-			Args:   []string{"run", "{{gate_flags}}", "{{prompt}}"},
+			Args:   stubArgs("run", "{{gate_flags}}", "{{prompt}}"),
 			Prompt: "argv",
 		},
 	}
@@ -130,7 +137,7 @@ func TestDoubleGateHoldsWhenEitherHalfIsMissing(t *testing.T) {
 				log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 				gates:      make(map[string]*gate.Server),
 			}
-			d := &policy.Decision{Adapter: interactiveAdapter(tc.capable), CWD: t.TempDir(), Mode: config.ModeReadOnly}
+			d := &policy.Decision{Adapter: interactiveAdapter(t, tc.capable), CWD: t.TempDir(), Mode: config.ModeReadOnly}
 
 			spec, err := b.buildSpec(d, "hello", nil)
 			if err != nil {
@@ -176,7 +183,7 @@ func TestInteractiveRunCarriesNoBridgeSecretsInSpec(t *testing.T) {
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		gates:      make(map[string]*gate.Server),
 	}
-	d := &policy.Decision{Adapter: interactiveAdapter(true), CWD: t.TempDir(), Mode: config.ModeReadOnly}
+	d := &policy.Decision{Adapter: interactiveAdapter(t, true), CWD: t.TempDir(), Mode: config.ModeReadOnly}
 
 	spec, err := b.buildSpec(d, "hello", nil)
 	if err != nil {
@@ -285,12 +292,12 @@ func TestNeedsInputClosesTheGateAndRemovesItsConfig(t *testing.T) {
 	}
 	t.Cleanup(b.runs.CancelAll)
 
-	// A sleeping child, not /bin/true: the run must still be live when this
+	// A sleeping child, not one that exits at once: the run must still be live when this
 	// test drives it into needs_input by hand, the same way a real gate
 	// resolver does when no operator channel answers a question.
-	a := interactiveAdapter(true)
-	a.ResolvedCommand = "/bin/sleep"
-	a.Invoke = &config.Invocation{Args: []string{"30"}, Prompt: "argv"}
+	a := interactiveAdapter(t, true)
+	a.ResolvedCommand = self(t)
+	a.Invoke = &config.Invocation{Args: stubArgs("--sleep", "30s"), Prompt: "argv"}
 	d := &policy.Decision{Adapter: a, CWD: t.TempDir(), Mode: config.ModeReadOnly}
 
 	spec, err := b.buildSpec(d, "hello", nil)
@@ -364,7 +371,7 @@ func TestSweepStaleGateConfigsLeavesALiveGateAlone(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(liveSocket), 0o700); err != nil {
 		t.Fatalf("mkdir gate dir: %v", err)
 	}
-	ln, err := net.Listen("unix", liveSocket)
+	ln, err := platform.NewControlEndpoint().Listen(liveSocket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -422,7 +429,7 @@ func TestSweepStaleGateConfigsNeverDialsAPlantedOutOfTreeSocket(t *testing.T) {
 	plantedDir := shortTempDir(t) // NOT <runtimeDir>/gate — simulates a planted, out-of-tree path
 	planted := filepath.Join(plantedDir, "anywhere.sock")
 	dialed := make(chan struct{}, 1)
-	ln, err := net.Listen("unix", planted)
+	ln, err := platform.NewControlEndpoint().Listen(planted)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -469,7 +476,7 @@ func TestSweepStaleGateConfigsNeverDialsAPlantedOutOfTreeSocket(t *testing.T) {
 // regression this guards against shows up as elapsed time, not just as a
 // wrong boolean.
 func TestWatcherOnOneRunDoesNotClaimAnotherRunsQuestion(t *testing.T) {
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"30"})
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "30s"))
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	b.cfg.Defaults.QuestionTimeoutS = 5 // long enough that a wrongly-blocked resolve is unmistakable
 
@@ -541,7 +548,7 @@ func TestInteractiveEnabledConsultsRuntimeToggleNotJustConfig(t *testing.T) {
 	agents := map[string]*config.Adapter{
 		"codex": {ID: "codex", Mode: config.ModeReadOnly, Worktree: config.WorktreeRequired},
 	}
-	a := interactiveAdapter(true)
+	a := interactiveAdapter(t, true)
 
 	// Config allows the feature; a runtime toggle must be able to narrow it,
 	// and re-enabling within the ceiling must restore it.

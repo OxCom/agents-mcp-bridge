@@ -3,12 +3,14 @@ package control
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/oxcom/agents-mcp-bridge/internal/platform"
 )
@@ -89,11 +91,17 @@ func (s *Server) accept() {
 			s.mu.Lock()
 			closed := s.closed
 			s.mu.Unlock()
-			if closed {
+			if closed || errors.Is(err, net.ErrClosed) {
 				return
 			}
-			s.log.Warn("control accept failed", "error", err)
-			return
+			// Transient failures must not end operator control for the life
+			// of the process. On Windows every Accept creates a fresh pipe
+			// instance, which can fail under instance pressure, so returning
+			// here would silently retire the endpoint. Same stance as
+			// internal/gate.
+			s.log.Warn("control accept error", "error", err)
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 		go s.serve(conn)
 	}
@@ -323,7 +331,9 @@ func (s *Server) writeIndex(entries []IndexEntry) error {
 		return err
 	}
 	tmp := s.index + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	// The index names every live bridge's control endpoint, so it is
+	// owner-only on both platforms: a mode on POSIX, a DACL on Windows.
+	if err := platform.WriteOwnerOnlyFile(tmp, raw); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.index) // atomic: a reader never sees a half-written index

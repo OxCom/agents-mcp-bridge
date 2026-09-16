@@ -46,8 +46,7 @@ func (windowsEndpoint) Listen(name string) (net.Listener, error) {
 		return nil, fmt.Errorf("create listener event: %w", err)
 	}
 	// cancelEv lives as long as the listener: Close signals it to release a
-	// blocked Accept, and an Accept may still be waiting on it afterwards, so it
-	// is not closed. One handle per control endpoint, released with the process.
+	// blocked Accept, then waits for that Accept before closing the handle.
 	return &pipeListener{
 		name:     pipe,
 		sa:       sa,

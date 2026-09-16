@@ -44,7 +44,10 @@ func writeGateConfig(dir, runID, command, socket, token string) (string, error) 
 		return "", err
 	}
 	path := filepath.Join(dir, "gate-"+runID+".json")
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
+	// This file carries the gate token, the one credential the delegated child
+	// is given, so it is owner-only on both platforms: a mode on POSIX, a DACL
+	// on Windows.
+	if err := platform.WriteOwnerOnlyFile(path, raw); err != nil {
 		return "", err
 	}
 	return path, nil

@@ -160,7 +160,7 @@ func TestElicitAcceptsAValidAnswer(t *testing.T) {
 // whatever is currently in the map, so elicit must still find B's session
 // live afterwards.
 func TestElicitOverlappingAwaitsKeepTheNewestRequestLive(t *testing.T) {
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"5"})
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "5s"))
 	ask := b.makeAsk("echoer")
 	_, out, err := ask(context.Background(), nil, askInput{Prompt: "hi"})
 	if err != nil {
@@ -241,7 +241,7 @@ func TestElicitOverlappingAwaitsKeepTheNewestRequestLive(t *testing.T) {
 // mimics the bridge's own preamble cannot occupy the position the real
 // preamble is required to occupy.
 func TestElicitPromptCarriesAttribution(t *testing.T) {
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"5"})
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "5s"))
 	ask := b.makeAsk("echoer")
 	_, out, err := ask(context.Background(), nil, askInput{Prompt: "hi"})
 	if err != nil {

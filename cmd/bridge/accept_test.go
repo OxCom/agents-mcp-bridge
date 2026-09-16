@@ -22,7 +22,7 @@ import (
 func TestAnswerRunResolvesThePendingQuestionID(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", shortTempDir(t))
 
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"5"})
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "5s"))
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	paths, err := platform.NewPaths()
@@ -37,7 +37,7 @@ func TestAnswerRunResolvesThePendingQuestionID(t *testing.T) {
 
 	r, err := b.runs.Start(run.Spec{
 		RunID: "run-answered", Agent: "echoer", HostAgent: "claude",
-		Command: "/bin/sleep", Args: []string{"5"}, CWD: t.TempDir(),
+		Command: self(t), Args: stubArgs("--sleep", "5s"), CWD: t.TempDir(),
 		Env:       []string{"PATH=" + os.Getenv("PATH")},
 		Timeout:   5 * time.Second,
 		MaxOutput: 1 << 10,
@@ -76,7 +76,7 @@ func TestAnswerRunResolvesThePendingQuestionID(t *testing.T) {
 func TestAnswerRunRefusesWithNothingPending(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", shortTempDir(t))
 
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"5"})
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "5s"))
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	paths, err := platform.NewPaths()
@@ -91,7 +91,7 @@ func TestAnswerRunRefusesWithNothingPending(t *testing.T) {
 
 	if _, err := b.runs.Start(run.Spec{
 		RunID: "run-idle", Agent: "echoer", HostAgent: "claude",
-		Command: "/bin/sleep", Args: []string{"5"}, CWD: t.TempDir(),
+		Command: self(t), Args: stubArgs("--sleep", "5s"), CWD: t.TempDir(),
 		Env:       []string{"PATH=" + os.Getenv("PATH")},
 		Timeout:   5 * time.Second,
 		MaxOutput: 1 << 10,

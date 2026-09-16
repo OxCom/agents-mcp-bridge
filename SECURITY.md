@@ -195,6 +195,13 @@ security-relevant mechanisms differ by platform and are implemented behind four 
   `KILL_ON_JOB_CLOSE`, so a hard kill of the bridge cannot leave orphaned agents.
 - **Named pipes can be squatted.** The endpoint is created with
   `FILE_FLAG_FIRST_PIPE_INSTANCE` and the client verifies the server's SID before sending.
+- **A Windows file mode grants nothing.** `0600` on a Go `os.WriteFile` leaves the file
+  readable by every local account, so the two files that must not leak — `servers.json`,
+  the index of every live bridge's control endpoint, and the per-run gate config, which
+  carries the gate token — are written through `platform.WriteOwnerOnlyFile`: a mode on
+  POSIX, an owner-only DACL supplied at `CreateFile` time on Windows, with the file removed
+  rather than left readable if the restriction cannot be applied. The config file's own
+  permission check is still unimplemented on Windows and refuses instead (v1.1).
 
 ## Supported versions
 

@@ -240,7 +240,7 @@ func TestPredecessorStopsOccupyingItsSlotWhenTheSuccessorIsAdmitted(t *testing.T
 	// spec() derives RunID from the test name, so each Start here needs its
 	// own id: identical ids collide on one registry key and the count never
 	// rises, which would make this test pass against the defect it pins.
-	successorSpec := spec(t, "sleep", "10")
+	successorSpec := spec(t, "sleep", "10s")
 	successorSpec.RunID = "run-successor"
 	successorSpec.ResumedFrom = pred.ID
 	successor, err := reg.Start(successorSpec, platform.NewProcessGroup())
@@ -252,7 +252,7 @@ func TestPredecessorStopsOccupyingItsSlotWhenTheSuccessorIsAdmitted(t *testing.T
 	// The predecessor has no child left — needs_input means the process is
 	// already gone — and its slot now belongs to the successor, so the second
 	// slot is genuinely free and this ordinary run must be admitted.
-	otherSpec := spec(t, "sleep", "10")
+	otherSpec := spec(t, "sleep", "10s")
 	otherSpec.RunID = "run-other"
 	other, err := reg.Start(otherSpec, platform.NewProcessGroup())
 	if err != nil {

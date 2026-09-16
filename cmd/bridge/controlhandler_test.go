@@ -18,7 +18,7 @@ import (
 // rather than a silent success, and must not write a question.answered audit
 // entry for an answer that was never delivered.
 func TestAnswerWithNoPendingQuestionFailsAndIsNotAudited(t *testing.T) {
-	b, auditPath := newTestBridge(t, "/bin/sleep", []string{"5"})
+	b, auditPath := newTestBridge(t, self(t), stubArgs("--sleep", "5s"))
 	ask := b.makeAsk("echoer")
 	_, out, err := ask(context.Background(), nil, askInput{Prompt: "hi"})
 	if err != nil {
@@ -45,8 +45,8 @@ func TestAnswerWithNoPendingQuestionFailsAndIsNotAudited(t *testing.T) {
 // must carry its text and options over the control channel, and a run with
 // nothing pending must report empty fields.
 func TestRunsReportsAPendingQuestion(t *testing.T) {
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"30"})
-	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: []string{"30"}, Prompt: "argv"}
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "30s"))
+	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: stubArgs("--sleep", "30s"), Prompt: "argv"}
 
 	ask := b.makeAsk("echoer")
 	_, started, err := ask(context.Background(), nil, askInput{Prompt: "x"})
@@ -99,8 +99,8 @@ func TestRunsReportsAPendingQuestion(t *testing.T) {
 // stale fields from Q1 mixed with Q2's, and an operator answer scoped to Q1's
 // id must be refused once Q2 is what is actually pending.
 func TestRunsReportsTheSecondQuestionAfterTheFirstIsGone(t *testing.T) {
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"30"})
-	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: []string{"30"}, Prompt: "argv"}
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "30s"))
+	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: stubArgs("--sleep", "30s"), Prompt: "argv"}
 
 	ask := b.makeAsk("echoer")
 	_, started, err := ask(context.Background(), nil, askInput{Prompt: "x"})

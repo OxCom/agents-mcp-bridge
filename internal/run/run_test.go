@@ -2,7 +2,6 @@ package run
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,7 +10,16 @@ import (
 	"github.com/oxcom/agents-mcp-bridge/internal/platform"
 )
 
-func spec(t *testing.T, cmd string, args ...string) Spec {
+// spec asks the test-binary helper for one behaviour (see helper_test.go).
+// No POSIX binary is named, so the spawn works on every supported OS.
+func spec(t *testing.T, behaviour string, args ...string) Spec {
+	t.Helper()
+	return rawSpec(t, helperCommand(t), append([]string{behaviour}, args...)...)
+}
+
+// rawSpec names a command directly. Only the two missing-binary tests and the
+// POSIX-only process-group test need it.
+func rawSpec(t *testing.T, cmd string, args ...string) Spec {
 	t.Helper()
 	return Spec{
 		RunID:     "run-" + t.Name(),
@@ -20,7 +28,7 @@ func spec(t *testing.T, cmd string, args ...string) Spec {
 		Command:   cmd,
 		Args:      args,
 		CWD:       t.TempDir(),
-		Env:       []string{"PATH=" + os.Getenv("PATH")},
+		Env:       helperEnviron(),
 		Timeout:   10 * time.Second,
 		MaxOutput: 1 << 16,
 	}
@@ -46,7 +54,7 @@ func TestCompletedRunCapturesOutput(t *testing.T) {
 
 func TestNonZeroExitIsAFailureNotAResult(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
-	r, err := reg.Start(spec(t, "sh", "-c", "echo out; echo boom >&2; exit 3"), platform.NewProcessGroup())
+	r, err := reg.Start(spec(t, "fail", "out", "boom", "3"), platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +75,7 @@ func TestNonZeroExitIsAFailureNotAResult(t *testing.T) {
 
 func TestCancelStopsTheRun(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
-	r, err := reg.Start(spec(t, "sleep", "60"), platform.NewProcessGroup())
+	r, err := reg.Start(spec(t, "sleep", "60s"), platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +91,7 @@ func TestCancelStopsTheRun(t *testing.T) {
 
 func TestCancelIsIdempotent(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
-	r, err := reg.Start(spec(t, "sleep", "60"), platform.NewProcessGroup())
+	r, err := reg.Start(spec(t, "sleep", "60s"), platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +106,7 @@ func TestOutputIsCappedWithoutKillingTheChild(t *testing.T) {
 	// Closing the pipe early would SIGPIPE the child and turn an oversized
 	// answer into a crash.
 	reg := NewRegistry(4, time.Hour)
-	sp := spec(t, "sh", "-c", "head -c 200000 /dev/zero | tr '\\0' 'x'; exit 0")
+	sp := spec(t, "bytes", "200000")
 	sp.MaxOutput = 1024
 	r, err := reg.Start(sp, platform.NewProcessGroup())
 	if err != nil {
@@ -138,7 +146,7 @@ func TestPromptOnStdinNeverTouchesArgv(t *testing.T) {
 
 func TestConcurrencyLimitRefusesRatherThanQueues(t *testing.T) {
 	reg := NewRegistry(1, time.Hour)
-	first, err := reg.Start(spec(t, "sleep", "5"), platform.NewProcessGroup())
+	first, err := reg.Start(spec(t, "sleep", "5s"), platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +159,7 @@ func TestConcurrencyLimitRefusesRatherThanQueues(t *testing.T) {
 
 func TestAwaitIsRecallableAndReportsStillRunning(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
-	r, err := reg.Start(spec(t, "sleep", "2"), platform.NewProcessGroup())
+	r, err := reg.Start(spec(t, "sleep", "2s"), platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +221,7 @@ func TestCancelAllLeavesNoLiveRun(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
 	var runs []*Run
 	for i := 0; i < 3; i++ {
-		sp := spec(t, "sleep", "30")
+		sp := spec(t, "sleep", "30s")
 		sp.RunID = sp.RunID + string(rune('a'+i))
 		r, err := reg.Start(sp, platform.NewProcessGroup())
 		if err != nil {
@@ -231,7 +239,7 @@ func TestCancelAllLeavesNoLiveRun(t *testing.T) {
 
 func TestMissingCommandFailsTheRunNotTheServer(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
-	r, err := reg.Start(spec(t, "/nonexistent/binary"), platform.NewProcessGroup())
+	r, err := reg.Start(rawSpec(t, "/nonexistent/binary"), platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +436,7 @@ func TestCallerFacingFailureHidesHostDetail(t *testing.T) {
 	// A missing binary must not tell an untrusted caller the path we tried or
 	// what the OS said about it.
 	reg := NewRegistry(4, time.Hour)
-	sp := spec(t, "/opt/secret-location/agent-binary")
+	sp := rawSpec(t, "/opt/secret-location/agent-binary")
 	r, err := reg.Start(sp, platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)

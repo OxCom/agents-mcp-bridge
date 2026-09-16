@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,13 +10,14 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/oxcom/agents-mcp-bridge/internal/gate"
+	"github.com/oxcom/agents-mcp-bridge/internal/platform"
 )
 
 // A fake bridge-side gate: accepts one ask, returns a fixed verdict.
 func fakeGateSocket(t *testing.T) (string, chan gate.Ask) {
 	t.Helper()
 	socket := filepath.Join(shortTempDir(t), "g.sock")
-	ln, err := net.Listen("unix", socket)
+	ln, err := platform.NewControlEndpoint().Listen(socket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -42,7 +42,7 @@ func fakeGateSocket(t *testing.T) (string, chan gate.Ask) {
 func fakeGateSocketMalformed(t *testing.T) string {
 	t.Helper()
 	socket := filepath.Join(shortTempDir(t), "malformed.sock")
-	ln, err := net.Listen("unix", socket)
+	ln, err := platform.NewControlEndpoint().Listen(socket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -66,7 +66,7 @@ func fakeGateSocketMalformed(t *testing.T) string {
 func fakeGateSocketEmptyBehavior(t *testing.T) string {
 	t.Helper()
 	socket := filepath.Join(shortTempDir(t), "empty-behavior.sock")
-	ln, err := net.Listen("unix", socket)
+	ln, err := platform.NewControlEndpoint().Listen(socket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -91,7 +91,7 @@ func fakeGateSocketEmptyBehavior(t *testing.T) string {
 func fakeGateSocketBusy(t *testing.T) string {
 	t.Helper()
 	socket := filepath.Join(shortTempDir(t), "busy.sock")
-	ln, err := net.Listen("unix", socket)
+	ln, err := platform.NewControlEndpoint().Listen(socket)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}

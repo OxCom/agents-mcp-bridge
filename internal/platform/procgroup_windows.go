@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -66,12 +67,17 @@ func (g *windowsGroup) Attach(cmd *exec.Cmd) error {
 			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 		},
 	}
-	if _, err := windows.SetInformationJobObject(
+	// x/sys declares JobObjectInformation as a bare uintptr, so there is no typed
+	// overload that would pin info for the call; the conversion happens outside
+	// the syscall expression, which is why the KeepAlive below is load-bearing.
+	_, err = windows.SetInformationJobObject(
 		job,
 		windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)),
 		uint32(unsafe.Sizeof(info)),
-	); err != nil {
+	)
+	runtime.KeepAlive(&info)
+	if err != nil {
 		_ = windows.CloseHandle(job)
 		return fmt.Errorf("set kill-on-job-close: %w", err)
 	}

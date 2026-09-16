@@ -12,7 +12,7 @@ import (
 func TestDbgTranscript(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
 	sp := steerSpec(t, "hello")
-	sp.Args = []string{"-c", `printf 'not json at all\n'; cat > /dev/null`}
+	sp.Args = []string{"rawdrain", "not json at all"}
 	sp.Timeout = 2 * time.Second
 	r, _ := reg.Start(sp, platform.NewProcessGroup())
 	s := r.Await(15 * time.Second)

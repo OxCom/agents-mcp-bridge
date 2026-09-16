@@ -29,3 +29,12 @@ func shortTempDir(t *testing.T) string {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }
+
+// stubArgs prefixes the stub-agent verb, so a test spawn of the test binary
+// (self) lands in runStubAgent rather than in a vendor CLI. It replaces
+// /bin/cat, /bin/echo and /bin/sleep, none of which exist on Windows:
+// stubagent.go echoes stdin and argv as one JSON line and honours --sleep and
+// --exit, which is everything these tests asked those binaries for.
+func stubArgs(args ...string) []string {
+	return append([]string{stubAgentVerb}, args...)
+}

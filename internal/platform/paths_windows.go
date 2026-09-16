@@ -105,7 +105,49 @@ func mkdirOwnerOnly(dir string, sa *windows.SecurityAttributes) error {
 			return fmt.Errorf("create %s: %w", missing[i], err)
 		}
 	}
+	if err := refuseReparsePoint(abs); err != nil {
+		return err
+	}
 	return setOwnerOnlyDACL(abs)
+}
+
+// refuseReparsePoint fails unless abs is a real directory. os.Stat follows a
+// junction, so a pre-planted %LOCALAPPDATA%\agents-bridge link would have the
+// owner-only DACL written onto whatever it points at instead.
+//
+// FILE_FLAG_OPEN_REPARSE_POINT opens the link itself rather than its target, so
+// the attribute below describes abs and not the destination. Every failure to
+// establish what abs is refuses: T10a is same-user, but this must fail closed.
+func refuseReparsePoint(abs string) error {
+	name, err := windows.UTF16PtrFromString(abs)
+	if err != nil {
+		return fmt.Errorf("encode path %s: %w", abs, err)
+	}
+	h, err := windows.CreateFile(
+		name,
+		0,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT,
+		0,
+	)
+	if err != nil {
+		return fmt.Errorf("open %s to check for a reparse point: %w", abs, err)
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &info); err != nil {
+		return fmt.Errorf("inspect %s for a reparse point: %w", abs, err)
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return fmt.Errorf("%s is a reparse point (junction or symlink); refusing to apply the owner-only DACL through it", abs)
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
+		return fmt.Errorf("%s exists but is not a directory", abs)
+	}
+	return nil
 }
 
 // setOwnerOnlyDACL replaces dir's DACL with one granting this account alone, and

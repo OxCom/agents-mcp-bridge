@@ -77,8 +77,12 @@ func sameUserAsSelf(pid uint32) error {
 // The SID is read from our own token, never hardcoded. A well-known SID such as
 // S-1-5-32-545 (Users) or a literal "OW"/"CO" would grant the wrong set on a
 // domain-joined or multi-user machine.
+//
+// OICI is OBJECT_INHERIT|CONTAINER_INHERIT: without it the ACE guards only the
+// directory itself and every transcript, audit record and servers.json created
+// inside gets the token's wider default DACL. Both flags are inert on a pipe.
 func ownerOnlySDDL(sid *windows.SID) string {
-	return "D:P(A;;GA;;;" + sid.String() + ")"
+	return "D:P(A;OICI;GA;;;" + sid.String() + ")"
 }
 
 // ownerOnlySecurityAttributes builds SECURITY_ATTRIBUTES granting this account

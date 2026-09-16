@@ -17,7 +17,7 @@ import (
 
 func TestTimeoutKillsTheWholeGroup(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
-	sp := spec(t, "sh", "-c", "sleep 300 & echo $!; wait")
+	sp := rawSpec(t, "sh", "-c", "sleep 300 & echo $!; wait")
 	sp.Timeout = 300 * time.Millisecond
 	r, err := reg.Start(sp, platform.NewProcessGroup())
 	if err != nil {

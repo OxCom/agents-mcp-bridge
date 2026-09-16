@@ -38,13 +38,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # No windows-latest yet, deliberately. 22 of 46 test files assume POSIX
-        # (bare sh/echo/sleep/cat spawns, hardcoded /bin/*, raw
-        # net.Dial("unix") bypassing the named-pipe seam, Perm()==0600
-        # assertions), so the job would be red for environmental reasons and,
-        # because smoke needs compile needs tests, would block the Windows
-        # doctor smoke job that does run. Add it once those tests are ported.
-        os: [ubuntu-latest, macos-latest]
+        # windows-latest executes the named pipe, job object and DACL'd paths
+        # that CI otherwise only cross-compiles. The POSIX assumptions that
+        # used to make this job meaningless are gone: process spawns go
+        # through a helper-process TestMain, sockets are dialled through
+        # platform.DialControl, and the assertions with no Windows equivalent
+        # yet (owner-only file modes, sun_path length) are guarded and name
+        # the gap. Until this passes once, every Windows behaviour in
+        # SECURITY.md is declared, not enforced.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

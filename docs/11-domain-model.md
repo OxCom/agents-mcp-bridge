@@ -199,7 +199,8 @@ internal/audit        JSONL, keyed digests, rotation
 internal/gate         the delegated agent's only address; carries one blocking question and its verdict, never the operator's control socket
 internal/control      unix socket / named pipe, peer check, verbs
 internal/tui          bubbletea watch UI
-internal/platform     Paths, PathGuard, ProcessGroup, ControlEndpoint (the four OS seams)
+internal/platform     Paths, PathGuard, ProcessGroup, ControlEndpoint (the four OS seams),
+                      plus WriteOwnerOnlyFile: a mode on POSIX, an owner-only DACL on Windows
 ```
 
 `internal/policy` imports none of `run`, `stream`, `adapter`. It is a pure function of

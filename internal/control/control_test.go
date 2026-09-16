@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -218,6 +219,14 @@ func TestUnknownVerbIsRejected(t *testing.T) {
 }
 
 func TestSocketIsOwnerOnly(t *testing.T) {
+	// POSIX-only: on Windows the endpoint is a named pipe, so Socket() names
+	// \\.\pipe\... and no file exists to stat. The property still has to hold
+	// there, carried by the pipe's owner-only DACL
+	// (platform/endpoint_windows.go). No test asserts that DACL yet: that is
+	// the Windows gap, not a reason to soften the mode check here.
+	if runtime.GOOS == "windows" {
+		t.Skip("no file behind a named pipe; the pipe DACL is unasserted on Windows")
+	}
 	s, _, _ := newServer(t)
 	fi, err := os.Stat(s.Socket())
 	if err != nil {
@@ -239,8 +248,19 @@ func TestServerRegistersAndDeregisters(t *testing.T) {
 	if got := ReadIndex(dir); len(got) != 0 {
 		t.Fatalf("server still listed after close: %+v", got)
 	}
-	if _, err := os.Stat(s.Socket()); !os.IsNotExist(err) {
-		t.Fatal("the socket file outlived the server")
+	// What this asserts is that nothing dialable outlives the server. On POSIX
+	// that is also visible on disk, because Close unlinks the socket file. On
+	// Windows a named pipe leaves no on-disk remnant at all, so os.Stat would
+	// report IsNotExist for a live pipe too and would pass for the wrong
+	// reason; there the check is that a dial no longer succeeds.
+	if runtime.GOOS != "windows" {
+		if _, err := os.Stat(s.Socket()); !os.IsNotExist(err) {
+			t.Fatal("the socket file outlived the server")
+		}
+	}
+	if conn, err := platform.DialControl(s.Socket(), 200*time.Millisecond); err == nil {
+		_ = conn.Close()
+		t.Fatal("the control endpoint still accepts connections after Close")
 	}
 }
 
@@ -258,6 +278,13 @@ func TestStaleIndexEntriesArePruned(t *testing.T) {
 }
 
 func TestIndexIsOwnerOnly(t *testing.T) {
+	// POSIX-only, because a Go file mode is the control only here. On Windows
+	// platform.WriteOwnerOnlyFile gives the index an owner-only DACL and the
+	// mode bits still read 0666, so asserting them there would prove nothing.
+	// Reading the DACL back needs a Windows-only helper no test has yet.
+	if runtime.GOOS == "windows" {
+		t.Skip("on Windows the index is restricted by its DACL, which no test reads back yet")
+	}
 	_, _, dir := newServer(t)
 	fi, err := os.Stat(filepath.Join(dir, "servers.json"))
 	if err != nil {
@@ -282,10 +309,14 @@ func TestMultipleServersCoexist(t *testing.T) {
 		t.Fatalf("expected 1 server, got %d", len(got))
 	}
 	// A second Listen from the same process reuses the pid, so the socket name
-	// collides; that is expected and is why the name includes the pid.
-	if _, err := os.Stat(s1.Socket()); err != nil {
+	// collides; that is expected and is why the name includes the pid. The
+	// endpoint is checked by dialling it, not by stat: a named pipe has no file
+	// behind its name.
+	conn, err := platform.DialControl(s1.Socket(), 2*time.Second)
+	if err != nil {
 		t.Fatal(err)
 	}
+	_ = conn.Close()
 	_ = time.Now()
 }
 

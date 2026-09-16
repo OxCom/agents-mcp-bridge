@@ -3,13 +3,12 @@ package gate
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -25,7 +24,7 @@ func (f *fakeResolver) Resolve(_ context.Context, a Ask) Reply {
 
 func dialAndSend(t *testing.T, socket string, a Ask) Reply {
 	t.Helper()
-	conn, err := net.Dial("unix", socket)
+	conn, err := platform.DialControl(socket, 2*time.Second)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -75,6 +74,14 @@ func TestGateRefusesAWrongToken(t *testing.T) {
 }
 
 func TestGateSocketIsOwnerOnly(t *testing.T) {
+	// POSIX-only: on Windows the endpoint is a named pipe, so Socket() names
+	// \\.\pipe\... and there is no file to stat. The equivalent control is
+	// the pipe's owner-only DACL (platform/endpoint_windows.go), which no test
+	// asserts yet. That is the Windows gap this skip names, not a reason to
+	// weaken the POSIX assertion.
+	if runtime.GOOS == "windows" {
+		t.Skip("no file behind a named pipe; the pipe DACL is unasserted on Windows")
+	}
 	s, err := Listen(shortTempDir(t), "run-1", "tok-1", platform.NewControlEndpoint(), &fakeResolver{}, slog.Default())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
@@ -113,6 +120,13 @@ func TestGateSocketIsNotASiblingOfTheOperatorIndex(t *testing.T) {
 	if filepath.Dir(s.Socket()) == dir {
 		t.Fatalf("gate socket %q sits directly in the runtime dir, alongside servers.json", s.Socket())
 	}
+	// The separation above holds on every platform: the pipe name is
+	// path-shaped, so the sibling check is portable. The directory mode is not:
+	// on Windows no directory is created for a pipe name, and the confinement
+	// that replaces it (the pipe DACL) has no test yet.
+	if runtime.GOOS == "windows" {
+		return
+	}
 	fi, err := os.Stat(filepath.Dir(s.Socket()))
 	if err != nil {
 		t.Fatalf("stat gate socket dir: %v", err)
@@ -127,6 +141,12 @@ func TestGateSocketIsNotASiblingOfTheOperatorIndex(t *testing.T) {
 // the 104-byte portable unix-socket cap (platform/endpoint_posix.go) must
 // still surface as an error.
 func TestGateSocketPathTooLongIsAnErrorNotAPanic(t *testing.T) {
+	// POSIX-only by nature: sun_path is a unix-socket limit. A named pipe name
+	// has no 104-byte cap, so on Windows a 200-character run id is a legal
+	// endpoint name and Listen is right to accept it.
+	if runtime.GOOS == "windows" {
+		t.Skip("named pipe names have no sun_path cap")
+	}
 	dir := t.TempDir()
 	longRunID := strings.Repeat("x", 200)
 	if _, err := Listen(dir, longRunID, "tok-1", platform.NewControlEndpoint(), &fakeResolver{}, slog.Default()); err == nil {
@@ -164,7 +184,7 @@ func TestGateClosesAnIdleConnection(t *testing.T) {
 	}
 	defer s.Close()
 
-	conn, err := net.Dial("unix", s.Socket())
+	conn, err := platform.DialControl(s.Socket(), 2*time.Second)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -192,7 +212,7 @@ func TestGateRefusesOversizedRequest(t *testing.T) {
 	}
 	defer s.Close()
 
-	conn, err := net.Dial("unix", s.Socket())
+	conn, err := platform.DialControl(s.Socket(), 2*time.Second)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -209,10 +229,10 @@ func TestGateRefusesOversizedRequest(t *testing.T) {
 	// The server may close the connection mid-write, once it has read enough
 	// to know the request is oversized. On Linux the whole payload fits in
 	// the socket buffer and the write completes first; on macOS the buffer is
-	// smaller and the write fails with EPIPE. Both are the refusal this test
-	// asserts, so only an unrelated write error is a failure.
-	if _, err := conn.Write(oversized); err != nil &&
-		!errors.Is(err, syscall.EPIPE) && !errors.Is(err, syscall.ECONNRESET) {
+	// smaller and the write fails with EPIPE, and on Windows a closed pipe
+	// surfaces as ERROR_BROKEN_PIPE or ERROR_NO_DATA. All are the refusal this
+	// test asserts, so only an unrelated write error is a failure.
+	if _, err := conn.Write(oversized); err != nil && !isPeerClosedWrite(err) {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -252,7 +272,7 @@ func TestGateCapsConcurrentConnections(t *testing.T) {
 	// Fill every in-flight slot with a connection that never writes, so
 	// each one occupies a serve() goroutine until the read deadline fires.
 	for i := 0; i < maxInFlight; i++ {
-		c, err := net.Dial("unix", s.Socket())
+		c, err := platform.DialControl(s.Socket(), 2*time.Second)
 		if err != nil {
 			t.Fatalf("dial %d: %v", i, err)
 		}
@@ -262,7 +282,7 @@ func TestGateCapsConcurrentConnections(t *testing.T) {
 	// Let the accept loop pick up each connection and acquire its slot.
 	time.Sleep(100 * time.Millisecond)
 
-	extra, err := net.Dial("unix", s.Socket())
+	extra, err := platform.DialControl(s.Socket(), 2*time.Second)
 	if err != nil {
 		t.Fatalf("dial extra: %v", err)
 	}

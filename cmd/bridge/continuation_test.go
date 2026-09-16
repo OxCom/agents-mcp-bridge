@@ -518,7 +518,7 @@ func TestContinueRetiresPredecessorUnconditionallyEvenWhenSupersedeIsRefused(t *
 
 	// get_changes only reports files once collect() has run, which happens
 	// when the run itself finishes (awaitAgent); the successor here is a
-	// still-running stand-in child (newTierFullTestBridge's /bin/sleep 30).
+	// still-running stand-in child (newTierFullTestBridge's stub --sleep 30s).
 	// Read the successor's worktree directly instead: it is the thing
 	// buildSpec handed forward from cont.PredWorktree, so it must already
 	// carry the predecessor's committed work regardless of what Supersede

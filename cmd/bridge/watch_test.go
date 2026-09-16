@@ -24,7 +24,7 @@ import (
 // fails the same way the regression did if the run id is ever dropped
 // again.
 func TestAttachToRunCarriesTheRunID(t *testing.T) {
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"30"})
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "30s"))
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	srv, err := control.Listen(shortTempDir(t), platform.NewControlEndpoint(), b, b.log)
@@ -70,7 +70,7 @@ func TestAttachToRunCarriesTheRunID(t *testing.T) {
 func TestRunsCommandListsLiveRuns(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", shortTempDir(t))
 
-	b, _ := newTestBridge(t, "/bin/sleep", []string{"5"})
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "5s"))
 	b.log = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	paths, err := platform.NewPaths()
@@ -85,7 +85,7 @@ func TestRunsCommandListsLiveRuns(t *testing.T) {
 
 	if _, err := b.runs.Start(run.Spec{
 		RunID: "run-listed", Agent: "echoer", HostAgent: "claude",
-		Command: "/bin/sleep", Args: []string{"5"}, CWD: t.TempDir(),
+		Command: self(t), Args: stubArgs("--sleep", "5s"), CWD: t.TempDir(),
 		Env:     []string{"PATH=" + os.Getenv("PATH")},
 		Timeout: 5 * time.Second, MaxOutput: 1 << 10,
 	}, platform.NewProcessGroup()); err != nil {

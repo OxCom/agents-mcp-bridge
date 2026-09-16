@@ -2,7 +2,6 @@ package run
 
 import (
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -10,20 +9,6 @@ import (
 	"github.com/oxcom/agents-mcp-bridge/internal/platform"
 	"github.com/oxcom/agents-mcp-bridge/internal/stream"
 )
-
-// fakeAgent is a stand-in that speaks enough stream-json to exercise steering
-// without spending vendor credits: it echoes each user message it receives as
-// an assistant message, and emits a result when told to finish.
-const fakeAgent = `
-while IFS= read -r line; do
-  content=$(printf '%s' "$line" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p')
-  if [ "$content" = "finish" ]; then
-    printf '{"type":"result","subtype":"success","session_id":"sess-1","result":"done"}\n'
-  else
-    printf '{"type":"assistant","session_id":"sess-1","message":{"role":"assistant","content":[{"type":"text","text":"heard %s"}]}}\n' "$content"
-  fi
-done
-`
 
 func steerSpec(t *testing.T, first string) Spec {
 	t.Helper()
@@ -36,10 +21,10 @@ func steerSpec(t *testing.T, first string) Spec {
 	return Spec{
 		RunID:                 "run-steer",
 		Agent:                 "claude",
-		Command:               "/bin/sh",
-		Args:                  []string{"-c", fakeAgent},
+		Command:               helperCommand(t),
+		Args:                  []string{"fakeagent"},
 		CWD:                   dir,
-		Env:                   []string{"PATH=" + os.Getenv("PATH")},
+		Env:                   helperEnviron(),
 		Timeout:               15 * time.Second,
 		MaxOutput:             1 << 16,
 		Parser:                stream.ClaudeParser{},
@@ -128,7 +113,7 @@ func TestSteerIsRefusedWithoutAChannel(t *testing.T) {
 	reg := NewRegistry(4, time.Hour)
 	sp := steerSpec(t, "")
 	sp.StreamStdin = false
-	sp.Args = []string{"-c", "sleep 5"}
+	sp.Args = []string{"sleep", "5s"}
 	r, err := reg.Start(sp, platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
@@ -227,13 +212,11 @@ func waitForOutput(t *testing.T, r *Run, want string) {
 func TestResultRecordDoesNotDuplicateTheAnswer(t *testing.T) {
 	// Claude's result record repeats the final assistant message. Appending
 	// both hands the caller the whole answer twice.
-	const echoThenResult = `
-printf '{"type":"assistant","session_id":"s","message":{"role":"assistant","content":[{"type":"text","text":"the answer"}]}}\n'
-printf '{"type":"result","subtype":"success","session_id":"s","result":"the answer"}\n'
-`
+	const assistantLine = `{"type":"assistant","session_id":"s","message":{"role":"assistant","content":[{"type":"text","text":"the answer"}]}}`
+	const resultLine = `{"type":"result","subtype":"success","session_id":"s","result":"the answer"}`
 	reg := NewRegistry(4, time.Hour)
 	sp := steerSpec(t, "go")
-	sp.Args = []string{"-c", echoThenResult}
+	sp.Args = []string{"emit", assistantLine, resultLine}
 	r, err := reg.Start(sp, platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
@@ -245,10 +228,10 @@ printf '{"type":"result","subtype":"success","session_id":"s","result":"the answ
 }
 
 func TestResultRecordIsUsedWhenTheAgentSaidNothingElse(t *testing.T) {
-	const resultOnly = `printf '{"type":"result","subtype":"success","session_id":"s","result":"only this"}\n'`
+	const resultOnly = `{"type":"result","subtype":"success","session_id":"s","result":"only this"}`
 	reg := NewRegistry(4, time.Hour)
 	sp := steerSpec(t, "go")
-	sp.Args = []string{"-c", resultOnly}
+	sp.Args = []string{"emit", resultOnly}
 	r, err := reg.Start(sp, platform.NewProcessGroup())
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +271,7 @@ func TestRunEndsWhenTheAgentNeverReportsAResult(t *testing.T) {
 	// still end at its own deadline rather than hanging forever.
 	reg := NewRegistry(4, time.Hour)
 	sp := steerSpec(t, "hello")
-	sp.Args = []string{"-c", `printf 'not json at all\n'; cat > /dev/null`}
+	sp.Args = []string{"rawdrain", "not json at all"}
 	sp.Timeout = 2 * time.Second
 	start := time.Now()
 	r, err := reg.Start(sp, platform.NewProcessGroup())

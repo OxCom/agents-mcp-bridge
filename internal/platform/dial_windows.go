@@ -12,9 +12,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// pipeBusyRetry is how long to wait before retrying a pipe whose instances are
-// all in use. The server creates the next instance as soon as it accepts, so the
-// busy window is short.
+// pipeBusyRetry is how long to wait before retrying a pipe that is not
+// connectable yet. The server creates the next instance as soon as it accepts,
+// so both the busy and the absent window are short.
 const pipeBusyRetry = 10 * time.Millisecond
 
 // DialControl connects to a control or gate endpoint addressed by a path-shaped
@@ -67,14 +67,15 @@ func DialControl(name string, timeout time.Duration) (net.Conn, error) {
 		if err == nil {
 			break
 		}
-		// Every instance is busy: the server has not yet created the next one.
-		// Anything else, including "no such pipe", fails immediately, matching
-		// the POSIX dial against a socket that is not there.
-		if !errors.Is(err, windows.ERROR_PIPE_BUSY) {
+		// Both errors mean "try again shortly", not "wrong endpoint":
+		// ERROR_PIPE_BUSY is every instance in use, and ERROR_FILE_NOT_FOUND is
+		// the window between the listener returning one instance and creating
+		// the next, in which the name does not exist at all.
+		if !errors.Is(err, windows.ERROR_PIPE_BUSY) && !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
 			return nil, fmt.Errorf("connect to %s: %w", pipe, err)
 		}
 		if !time.Now().Before(deadline) {
-			return nil, fmt.Errorf("connect to %s: %w", pipe, os.ErrDeadlineExceeded)
+			return nil, fmt.Errorf("connect to %s: %w (last attempt: %v)", pipe, os.ErrDeadlineExceeded, err)
 		}
 		time.Sleep(pipeBusyRetry)
 	}
