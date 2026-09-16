@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/oxcom/agents-mcp-bridge/internal/platform"
 )
 
 // Entry is one line of the log. Bodies are absent by default: the digests are
@@ -220,7 +222,10 @@ func loadOrCreateKey(path string) ([]byte, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create key directory: %w", err)
 	}
-	if err := os.WriteFile(path, key, 0o600); err != nil {
+	// This key signs every digest in the audit log, so it is owner-only on both
+	// platforms: a mode on POSIX, a DACL on Windows, where a mode grants
+	// nothing and this file landed 0666.
+	if err := platform.WriteOwnerOnlyFile(path, key); err != nil {
 		return nil, fmt.Errorf("write audit key: %w", err)
 	}
 	return key, nil

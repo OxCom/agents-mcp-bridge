@@ -33,6 +33,10 @@ const (
 	statusPass = "PASS"
 	statusFail = "FAIL"
 	statusSkip = "SKIP"
+	// statusWarn is not a fault and never changes the exit code. It exists so
+	// that a check the operator disabled is stated in the report rather than
+	// being absent from it.
+	statusWarn = "WARN"
 )
 
 // check is one reported result. Detail is one line: the report is meant to be
@@ -86,6 +90,10 @@ func skip(name, format string, a ...any) check {
 	return check{Name: name, Status: statusSkip, Detail: fmt.Sprintf(format, a...)}
 }
 
+func warn(name, format string, a ...any) check {
+	return check{Name: name, Status: statusWarn, Detail: fmt.Sprintf(format, a...)}
+}
+
 // probePrompt is what the stub is asked to echo back. It is deliberately
 // unlike anything an adapter's own flags contain, so finding it in the echo
 // record proves delivery rather than coincidence.
@@ -113,6 +121,12 @@ func runValidate(args []string) error {
 	agentID := fs.String("agent", "", "validate only this agent id")
 	fixture := fs.String("stream-fixture", "", "recorded vendor stream to drive a tier: full adapter's parser")
 	asJSON := fs.Bool("json", false, "print the report as one JSON object")
+	// Windows refuses every config load until the DACL check lands (v1.1), so
+	// without this there is no way to exercise an adapter there at all. It is
+	// validate-only and never silent: serve has no such flag, and the report
+	// carries a WARN line naming the file that was trusted without proof.
+	skipPerm := fs.Bool("insecure-skip-permission-check", false,
+		"load the config without checking that only its owner can write it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -125,7 +139,7 @@ func runValidate(args []string) error {
 		return fmt.Errorf("cannot locate this binary, which is the stub agent: %w", err)
 	}
 
-	report := buildValidateReport(*configPath, self, *agentID, *fixture)
+	report := buildValidateReport(*configPath, self, *agentID, *fixture, *skipPerm)
 	report.OK = report.failures() == 0
 
 	if *asJSON {
@@ -143,8 +157,12 @@ func runValidate(args []string) error {
 	return nil
 }
 
-func buildValidateReport(configPath, self, only, fixture string) *validateReport {
+func buildValidateReport(configPath, self, only, fixture string, skipPerm bool) *validateReport {
 	report := &validateReport{Config: configPath}
+	if skipPerm {
+		report.Checks = append(report.Checks, warn("config-perm",
+			"permission check skipped: %s is trusted without proof that only its owner can write it", configPath))
+	}
 
 	// The real loader, so all of the schema and every semantic rule applies.
 	// Only the executable resolution is substituted: an adapter is validated
@@ -152,7 +170,8 @@ func buildValidateReport(configPath, self, only, fixture string) *validateReport
 	// required to have the vendor CLI installed at all. `bridge doctor` is
 	// what checks the real binary.
 	cfg, err := config.Load(configPath, config.Options{
-		LookPath: func(string) (string, error) { return self, nil },
+		LookPath:            func(string) (string, error) { return self, nil },
+		SkipPermissionCheck: skipPerm,
 	})
 	if err != nil {
 		report.Checks = append(report.Checks, fail("config", "%v", err))
@@ -691,6 +710,11 @@ func printValidateReport(w io.Writer, r *validateReport) {
 }
 
 func tally(c check, total, passed, failed, skipped int) (int, int, int, int) {
+	// A WARN is a notice about how validate was invoked, not a check result, so
+	// it is printed but does not move the counts.
+	if c.Status == statusWarn {
+		return total, passed, failed, skipped
+	}
 	total++
 	switch c.Status {
 	case statusPass:

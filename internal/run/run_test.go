@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/oxcom/agents-mcp-bridge/internal/platform"
+	"github.com/oxcom/agents-mcp-bridge/internal/stream"
 )
 
 // spec asks the test-binary helper for one behaviour (see helper_test.go).
@@ -284,6 +285,34 @@ func TestNeedsInputPastDeadlineTransitionsAndFreesTheSlot(t *testing.T) {
 	// The freed slot must let a new run start under the same ceiling.
 	if _, err := reg.Start(spec(t, "echo", "hi"), platform.NewProcessGroup()); err != nil {
 		t.Fatalf("Start after the stuck run expired: %v", err)
+	}
+}
+
+// TestRefusedStartClosesTheTranscript pins that Start owns spec.Transcript on
+// the error path too. The caller opens the file before it knows whether the run
+// will be admitted, and a leaked handle is invisible on POSIX but blocks the
+// directory's removal on Windows, where CI caught it.
+func TestRefusedStartClosesTheTranscript(t *testing.T) {
+	reg := NewRegistry(1, time.Hour)
+	held := NewForTest("occupies-the-only-slot")
+	reg.mu.Lock()
+	reg.runs[held.ID] = held
+	reg.mu.Unlock()
+
+	tr, err := stream.CreateTranscript(t.TempDir(), "run-refused", 1<<20)
+	if err != nil {
+		t.Fatalf("CreateTranscript: %v", err)
+	}
+	s := spec(t, "echo", "hi")
+	s.Transcript = tr
+
+	if _, err := reg.Start(s, platform.NewProcessGroup()); !errors.Is(err, ErrConcurrencyLimit) {
+		t.Fatalf("Start err = %v, want ErrConcurrencyLimit", err)
+	}
+	// Closing an already-closed file reports it, which is the only portable
+	// proof that Start closed this one.
+	if err := tr.Close(); err == nil {
+		t.Fatal("Start left the transcript open after refusing the run")
 	}
 }
 

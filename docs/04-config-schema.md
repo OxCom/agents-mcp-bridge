@@ -426,7 +426,10 @@ Rules enforced at load and at expansion:
    JSON encoder, never by string templating. String templates are a load error.
 4. `command` is resolved through `PATH` (plus `PATHEXT` on Windows) to an absolute path
    and must be a regular executable file. A `command` containing a shell metacharacter
-   is a load error. On Windows, `.bat`, `.cmd` and `.ps1` are refused outright — `cmd.exe`
+   (`; & | < > $ ` " '`, newline, carriage return) is a load error. A backslash is **not**
+   one: it is the Windows path separator, nothing re-parses the command through a shell,
+   and excluding it made a Windows adapter command impossible to express. On Windows,
+   `.bat`, `.cmd` and `.ps1` are refused outright — `cmd.exe`
    re-parses their arguments and would reintroduce injection. *(This blocks npm-shim
    installs on Windows, which is why Windows is unsupported until v1.1.)*
 5. `args` may not contain any `--dangerously*` or `--allow-dangerously*` flag, as an
@@ -515,8 +518,8 @@ vendor accepts those flags or emits that stream shape; only the gated conformanc
 that (`docs/12-spike-results.md` records what a flag was observed to do, which is the same
 distinction).
 
-`bridge doctor --insecure-skip-permission-check` loads the config without asking whether
-only its owner can write it. It exists because Windows has no permission check yet: the
+`bridge doctor --insecure-skip-permission-check`, and the same flag on `bridge validate`,
+load the config without asking whether only its owner can write it. It exists because Windows has no permission check yet: the
 loader refuses every config file there (`internal/config/perm_windows.go`, v1.1), so without
 the flag nothing on Windows can reach the loader at all. `serve` has no such flag, and
 `doctor` prints a `WARN` line naming the file whenever the flag is used.

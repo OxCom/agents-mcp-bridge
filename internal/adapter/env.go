@@ -12,9 +12,8 @@ import (
 // configured, because an operator who had to list it would eventually paste a
 // broader list and defeat the point.
 //
-// The Windows entries are present even though Windows support lands in v1.1:
-// leaving them out would break Node-based CLIs the moment the port arrives, and
-// the list is a fact about the platform, not about the schedule.
+// Both lists are allowlists: a name absent here and absent from the operator's
+// env_allowlist does not reach the child (SR-1).
 func baselineEnv() []string {
 	if runtime.GOOS == "windows" {
 		return []string{
@@ -23,6 +22,25 @@ func baselineEnv() []string {
 		}
 	}
 	return []string{"HOME", "PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "SHELL", "TMPDIR"}
+}
+
+// bridgeEnvPrefix marks our own state. It is compared through envKey, so a
+// parent spelling it in another case cannot smuggle it past on Windows.
+const bridgeEnvPrefix = "AGENTS_BRIDGE_"
+
+// envKey normalizes an environment variable name for comparison.
+//
+// Windows treats these names case-insensitively, and a real Windows process
+// block spells them "Path", "ComSpec", "Temp", "windir" — never the upper-case
+// forms a POSIX-shaped allowlist is written in. Comparing case-sensitively
+// there drops PATH from the baseline and the child cannot resolve its own
+// executables. POSIX names are case-sensitive and stay exact: HOME and home are
+// two variables, and collapsing them would widen the allowlist.
+func envKey(name string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(name)
+	}
+	return name
 }
 
 // DepthEnvVar marks how deep a delegation chain has gone.
@@ -46,10 +64,10 @@ const RunIDEnvVar = "AGENTS_BRIDGE_RUN_ID"
 func BuildEnv(allowlist []string, depth int) []string {
 	keep := make(map[string]bool, len(allowlist)+16)
 	for _, k := range baselineEnv() {
-		keep[k] = true
+		keep[envKey(k)] = true
 	}
 	for _, k := range allowlist {
-		keep[k] = true
+		keep[envKey(k)] = true
 	}
 
 	out := make([]string, 0, len(keep)+1)
@@ -58,8 +76,8 @@ func BuildEnv(allowlist []string, depth int) []string {
 		if eq <= 0 {
 			continue
 		}
-		name := kv[:eq]
-		if strings.HasPrefix(name, "AGENTS_BRIDGE_") {
+		name := envKey(kv[:eq])
+		if strings.HasPrefix(name, bridgeEnvPrefix) {
 			continue // never leak our own state into the child
 		}
 		if keep[name] {

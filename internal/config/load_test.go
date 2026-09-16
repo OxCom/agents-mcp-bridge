@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -376,15 +378,29 @@ func TestOversizedConfigRefused(t *testing.T) {
 	mustFail(t, big, "exceeds")
 }
 
+// assertPermissionRefusal pins the refusal both platforms owe, with the reason
+// each one actually has. POSIX inspects the mode and names what is writable.
+// Windows has no DACL check yet (v1.1, see perm_windows.go) and fails closed;
+// that refusal is the property worth pinning, so the test must start failing
+// the day the real check lands without an update here.
+func assertPermissionRefusal(t *testing.T, err error, posixWant, msg string) {
+	t.Helper()
+	want := posixWant
+	if runtime.GOOS == "windows" {
+		want = "is not implemented on Windows"
+	}
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("%s mentioning %q, got %v", msg, want, err)
+	}
+}
+
 func TestGroupWritableConfigRefused(t *testing.T) {
 	path := write(t, minimal)
 	if err := os.Chmod(path, 0o664); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(path, Options{LookPath: fakeLookPath(t)})
-	if err == nil || !strings.Contains(err.Error(), "writable") {
-		t.Fatalf("expected refusal of a group-writable config, got %v", err)
-	}
+	assertPermissionRefusal(t, err, "writable", "expected refusal of a group-writable config")
 }
 
 func TestGroupWritableParentDirRefused(t *testing.T) {
@@ -399,9 +415,7 @@ func TestGroupWritableParentDirRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Load(path, Options{LookPath: fakeLookPath(t)})
-	if err == nil || !strings.Contains(err.Error(), "directory") {
-		t.Fatalf("expected refusal of a group-writable config directory, got %v", err)
-	}
+	assertPermissionRefusal(t, err, "directory", "expected refusal of a group-writable config directory")
 }
 
 func TestSymlinkedParentIsJudgedByItsTarget(t *testing.T) {
@@ -501,6 +515,49 @@ func TestAbsentFeaturesUseTheirDefaultsNotFalse(t *testing.T) {
 	}
 	if cfg.Features.Enabled("teleportation") {
 		t.Error("an unknown feature must be off")
+	}
+}
+
+// TestWindowsCommandPathLoads pins the reason the command pattern excludes
+// shell metacharacters but not the backslash: a Windows adapter command is a
+// backslash path, and refusing it made Windows support impossible. Nothing
+// re-parses the command through a shell, so a backslash is a path separator
+// here and nothing else.
+func TestWindowsCommandPathLoads(t *testing.T) {
+	body := `
+version: 1
+allowed_roots: ["/tmp"]
+agents:
+  claude:
+    command: 'C:\Program Files\agent\agent.exe'
+    tier: basic
+    mode: read-only
+    sandbox:
+      read-only: ["--safe"]
+    invoke:
+      args: ["-p", "{{prompt}}"]
+      prompt: argv
+`
+	if _, err := load(t, body); err != nil {
+		t.Fatalf("a Windows command path must load: %v", err)
+	}
+}
+
+// TestShellMetacharacterInCommandIsALoadError is the other half: widening the
+// pattern for the backslash must not have opened it to anything a shell would
+// act on, were one ever introduced.
+func TestShellMetacharacterInCommandIsALoadError(t *testing.T) {
+	for _, bad := range []string{"agent; rm -rf /", "agent && curl evil", "agent | tee", "agent $(id)", "agent `id`", "agent > out", `agent "quoted"`, "agent 'quoted'"} {
+		body := "\nversion: 1\nallowed_roots: [\"/tmp\"]\nagents:\n  claude:\n    command: " + strconv.Quote(bad) + "\n    tier: basic\n    mode: read-only\n    sandbox:\n      read-only: [\"--safe\"]\n    invoke:\n      args: [\"-p\", \"{{prompt}}\"]\n      prompt: argv\n"
+		// The error must be the pattern's, not some other rule firing first:
+		// an otherwise-valid config is the only way this proves anything.
+		_, err := load(t, body)
+		if err == nil {
+			t.Fatalf("command %q must be refused", bad)
+		}
+		if !strings.Contains(err.Error(), "pattern") {
+			t.Fatalf("command %q was refused for the wrong reason: %v", bad, err)
+		}
 	}
 }
 

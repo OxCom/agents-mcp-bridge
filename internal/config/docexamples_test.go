@@ -19,14 +19,17 @@ func TestDocumentedExamplesLoad(t *testing.T) {
 	if err != nil {
 		t.Skipf("config schema doc unavailable: %v", err)
 	}
-	blocks := regexp.MustCompile("(?s)```yaml\n(.*?)```").FindAllStringSubmatch(string(src), -1)
+	// A Windows checkout rewrites the docs to CRLF unless .gitattributes pins
+	// them, so the fence must tolerate \r and the body must be normalized before
+	// it reaches the YAML parser. Anchoring on \n alone found zero blocks there.
+	blocks := regexp.MustCompile("(?s)```yaml\r?\n(.*?)```").FindAllStringSubmatch(string(src), -1)
 	if len(blocks) == 0 {
 		t.Fatal("no yaml examples found in docs/04-config-schema.md")
 	}
 
 	checked := 0
 	for i, b := range blocks {
-		body := b[1]
+		body := strings.ReplaceAll(b[1], "\r\n", "\n")
 		if !strings.Contains(body, "version:") || !strings.Contains(body, "agents:") {
 			continue // a fragment, not a complete config
 		}

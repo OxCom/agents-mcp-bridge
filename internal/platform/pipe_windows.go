@@ -61,11 +61,16 @@ func pipeName(endpoint string) (string, error) {
 // sanitisePipeComponent keeps the readable part of the name to characters that
 // cannot alter the namespace. A backslash would create a sub-path, and any
 // other punctuation is simply dropped rather than trusted.
+//
+// The dot is dropped with the rest: allowing it let "..\..\evil" through as
+// "..-..-evil", which still carries a path-shaped token. Uniqueness comes from
+// the digest pipeName appends, so the readable tail loses nothing by being
+// restricted to [a-z0-9_-].
 func sanitisePipeComponent(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
 			b.WriteRune(r)
 		default:
 			b.WriteRune('-')

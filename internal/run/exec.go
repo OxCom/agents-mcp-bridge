@@ -76,6 +76,12 @@ type Spec struct {
 //
 // The call returns a Run, not a result: a delegated agent may work for minutes,
 // which is longer than any host will hold a tool call open.
+//
+// Start takes ownership of spec.Transcript on every path: the supervisor closes
+// it on success, and Start closes it before returning an error. The caller
+// opens the file before it knows whether the run will be admitted, and on
+// Windows an open handle blocks the directory's removal — so a refused run used
+// to leak the handle for the life of the process, invisibly on POSIX.
 func (reg *Registry) Start(spec Spec, group platform.ProcessGroup) (*Run, error) {
 	// Applies any due needs_input -> failed expiry (and its audit I/O) before
 	// the concurrency check below, and strictly before Registry.mu is taken
@@ -92,6 +98,9 @@ func (reg *Registry) Start(spec Spec, group platform.ProcessGroup) (*Run, error)
 	// and this is exactly the plain live count.
 	if live := reg.liveCountExcludingLocked(spec.ResumedFrom); live >= reg.maxLive {
 		reg.mu.Unlock()
+		if spec.Transcript != nil {
+			_ = spec.Transcript.Close()
+		}
 		return nil, fmt.Errorf("%w: %d of %d slots in use", ErrConcurrencyLimit, live, reg.maxLive)
 	}
 	reg.started = true

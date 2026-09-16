@@ -284,7 +284,7 @@
         "command": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^;&|<>$`\\\\\"'\\n\\r]+$"
+          "pattern": "^[^;&|<>$`\"'\\n\\r]+$"
         },
         "tier": {
           "enum": [

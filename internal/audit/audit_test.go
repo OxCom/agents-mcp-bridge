@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -132,8 +133,13 @@ func TestKeyFileIsOwnerOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("key file mode = %o, want 600", fi.Mode().Perm())
+	// POSIX only. Windows reports 0666 for every file whatever its ACL, so the
+	// mode proves nothing there; the control is the owner-only DACL
+	// platform.WriteOwnerOnlyFile applies, which no test reads back yet.
+	if runtime.GOOS != "windows" {
+		if fi.Mode().Perm() != 0o600 {
+			t.Fatalf("key file mode = %o, want 600", fi.Mode().Perm())
+		}
 	}
 }
 

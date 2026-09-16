@@ -3,6 +3,7 @@ package adapter
 import (
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -139,18 +140,79 @@ func TestSandboxFlagsRefuseSilentlyUnsandboxedRun(t *testing.T) {
 	}
 }
 
+// hasEnv reports whether env carries name=value, comparing the name the way
+// the platform does. Asserting on the exact spelling would be wrong on Windows,
+// where the process block decides the case, not the test.
+func hasEnv(env []string, name, value string) bool {
+	for _, kv := range env {
+		eq := strings.IndexByte(kv, '=')
+		if eq <= 0 {
+			continue
+		}
+		if envKey(kv[:eq]) == envKey(name) && kv[eq+1:] == value {
+			return true
+		}
+	}
+	return false
+}
+
 func TestBuildEnvDeniesByDefault(t *testing.T) {
+	// Deny-by-default is the claim on every platform; the baseline that
+	// survives it is per-platform, so assert against this OS's own list.
 	t.Setenv("SECRET_TOKEN", "swordfish")
-	t.Setenv("HOME", "/home/test")
-	t.Setenv("PATH", "/usr/bin")
+
+	type kv struct{ name, value string }
+	var want []kv
+	if runtime.GOOS == "windows" {
+		want = []kv{
+			{"SystemRoot", `C:\Windows`},
+			{"PATH", `C:\Windows\System32`},
+			{"PATHEXT", ".COM;.EXE;.BAT"},
+		}
+	} else {
+		want = []kv{
+			{"HOME", "/home/test"},
+			{"PATH", "/usr/bin"},
+		}
+	}
+	for _, w := range want {
+		t.Setenv(w.name, w.value)
+	}
 
 	env := BuildEnv(nil, 0)
-	joined := strings.Join(env, "\n")
-	if strings.Contains(joined, "swordfish") {
+	if strings.Contains(strings.Join(env, "\n"), "swordfish") {
 		t.Fatal("an unlisted variable reached the child")
 	}
-	if !strings.Contains(joined, "HOME=/home/test") || !strings.Contains(joined, "PATH=/usr/bin") {
-		t.Fatalf("baseline variables missing: %v", env)
+	for _, w := range want {
+		if !hasEnv(env, w.name, w.value) {
+			t.Fatalf("baseline variable %s missing: %v", w.name, env)
+		}
+	}
+}
+
+// Windows environment names are case-insensitive and a real process block
+// spells them "Path", "ComSpec", "Temp". Matching the baseline case-sensitively
+// there hands the child no PATH at all.
+func TestBuildEnvMatchesTheBaselineTheWayThePlatformDoes(t *testing.T) {
+	t.Setenv("SECRET_TOKEN", "swordfish")
+
+	if runtime.GOOS == "windows" {
+		t.Setenv("Path", `C:\Windows\System32`)
+		env := BuildEnv(nil, 0)
+		if !hasEnv(env, "PATH", `C:\Windows\System32`) {
+			t.Fatalf("a differently-cased baseline name was dropped: %v", env)
+		}
+		return
+	}
+
+	// POSIX names are case-sensitive: "path" is not PATH and must be denied.
+	t.Setenv("path", "/usr/bin/lowercase")
+	joined := strings.Join(BuildEnv(nil, 0), "\n")
+	if strings.Contains(joined, "/usr/bin/lowercase") {
+		t.Fatalf("a case variant widened the POSIX allowlist:\n%s", joined)
+	}
+	if strings.Contains(joined, "swordfish") {
+		t.Fatal("an unlisted variable reached the child")
 	}
 }
 

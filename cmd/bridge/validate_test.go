@@ -4,9 +4,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// skipPermCheck is what these tests pass to validate's
+// --insecure-skip-permission-check. internal/config/perm_windows.go refuses
+// every config file unconditionally until the DACL check lands (v1.1), so no
+// fixture can satisfy it there and the flag is the only way to reach the checks
+// under test. On POSIX the fixture does satisfy the real check, so it stays on
+// and the tests keep exercising the loader's permission path.
+var skipPermCheck = runtime.GOOS == "windows"
+
+// validateArgs builds runValidate's argv with the same skip decision.
+func validateArgs(path string) []string {
+	args := []string{"--config", path}
+	if skipPermCheck {
+		args = append(args, "--insecure-skip-permission-check")
+	}
+	return args
+}
 
 // TestMain lets the test binary answer to the stub-agent verb, so `bridge
 // validate` can spawn it exactly as it spawns the release binary. Without
@@ -31,7 +49,8 @@ func writeConfig(t *testing.T, body string) string {
 	dir := t.TempDir()
 	// The loader refuses a group- or world-writable config directory, and
 	// t.TempDir is 0775 on some machines. Narrowing it is part of the fixture,
-	// not a relaxation of the check.
+	// not a relaxation of the check. POSIX only: on Windows the mode grants
+	// nothing and the loader refuses regardless, hence skipPermCheck.
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +119,7 @@ agents:
 
 func TestValidateReportsAHealthyAdapterAsPassing(t *testing.T) {
 	path := writeConfig(t, healthyConfig)
-	r := buildValidateReport(path, self(t), "", "")
+	r := buildValidateReport(path, self(t), "", "", skipPermCheck)
 
 	if n := r.failures(); n != 0 {
 		t.Fatalf("%d check(s) failed on a healthy adapter:\n%s", n, renderForTest(r))
@@ -147,7 +166,7 @@ agents:
 
 func TestValidateFailsAnAdapterWithABrokenInvokeTemplate(t *testing.T) {
 	path := writeConfig(t, brokenInvokeConfig)
-	r := buildValidateReport(path, self(t), "", "")
+	r := buildValidateReport(path, self(t), "", "", skipPermCheck)
 
 	c := findCheck(t, r, "argv")
 	if c.Status != statusFail {
@@ -160,7 +179,7 @@ func TestValidateFailsAnAdapterWithABrokenInvokeTemplate(t *testing.T) {
 		t.Fatal("a broken template produced no failure")
 	}
 	// runValidate's error is what main turns into exit status 1.
-	if err := runValidate([]string{"--config", path}); err == nil {
+	if err := runValidate(validateArgs(path)); err == nil {
 		t.Fatal("bridge validate exited 0 on a broken adapter")
 	}
 }
@@ -199,7 +218,7 @@ agents:
 
 func TestValidateFailsAnInteractiveAdapterWithNoQuestionTool(t *testing.T) {
 	path := writeConfig(t, interactiveWithoutQuestionToolConfig)
-	r := buildValidateReport(path, self(t), "", "")
+	r := buildValidateReport(path, self(t), "", "", skipPermCheck)
 
 	c := findCheck(t, r, "config")
 	if c.Status != statusFail {
@@ -208,14 +227,14 @@ func TestValidateFailsAnInteractiveAdapterWithNoQuestionTool(t *testing.T) {
 	if !strings.Contains(c.Detail, "AskUserQuestion") || !strings.Contains(c.Detail, "rule 21") {
 		t.Errorf("the report does not name the rule that refused the adapter: %s", c.Detail)
 	}
-	if err := runValidate([]string{"--config", path}); err == nil {
+	if err := runValidate(validateArgs(path)); err == nil {
 		t.Fatal("bridge validate exited 0 on an adapter the loader refuses")
 	}
 }
 
 func TestValidateUnknownAgentIsReported(t *testing.T) {
 	path := writeConfig(t, healthyConfig)
-	r := buildValidateReport(path, self(t), "nosuch", "")
+	r := buildValidateReport(path, self(t), "nosuch", "", skipPermCheck)
 	if c := findCheck(t, r, "agent"); c.Status != statusFail {
 		t.Fatalf("an unknown --agent was not reported: %+v", c)
 	}
@@ -223,7 +242,7 @@ func TestValidateUnknownAgentIsReported(t *testing.T) {
 
 func TestValidateOnlyRunsTheRequestedAgent(t *testing.T) {
 	path := writeConfig(t, healthyConfig)
-	r := buildValidateReport(path, self(t), "thirdparty", "")
+	r := buildValidateReport(path, self(t), "thirdparty", "", skipPermCheck)
 	if len(r.Adapters) != 1 {
 		t.Fatalf("--agent did not narrow the report: %d adapter(s)", len(r.Adapters))
 	}
