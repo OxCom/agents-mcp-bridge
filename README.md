@@ -61,6 +61,67 @@ bridge validate --config <path>   # exercise every adapter against a stub agent
 Tools exposed to the host agent: `ask_<agent>`, `await_agent`, `steer_agent`,
 `cancel_agent`, `list_runs`. None of them can change policy.
 
+## Installing
+
+Two audiences, one binary. A person installs and configures it; the coding agent
+only ever sees an MCP server block.
+
+### For a person
+
+Download the archive for your platform from the
+[releases page](https://github.com/OxCom/agents-mcp-bridge/releases), along with
+`checksums.txt` and `checksums.txt.bundle`, then verify before unpacking. The
+bundle is keyless and bound to this repository's release workflow, so there is
+no key to trust; the full command is in [SECURITY.md](SECURITY.md#verifying-a-release).
+
+```bash
+cosign verify-blob --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github.com/OxCom/agents-mcp-bridge/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+sha256sum --check --ignore-missing checksums.txt
+tar xzf bridge_*_linux_amd64.tar.gz
+install -m 0755 bridge ~/.local/bin/bridge
+```
+
+Then write the config. It is the only file the bridge reads, and it is refused
+if anyone but its owner can write it:
+
+```bash
+mkdir -p ~/.config/agents-bridge
+install -m 0600 examples/config.yaml ~/.config/agents-bridge/config.yaml
+$EDITOR ~/.config/agents-bridge/config.yaml   # allowed_roots is the one thing you must set
+bridge doctor --host claude --config ~/.config/agents-bridge/config.yaml
+```
+
+`doctor` invokes no model and spends nothing. It reports the effective paths,
+whether each adapter's CLI resolves, whether the allowed roots exist, and
+whether `--host` agrees with the environment. Fix what it reports before
+registering the server.
+
+### For a coding agent
+
+Register the same binary in whichever agent will be doing the delegating. The
+only difference is `--host`, which is what excludes an agent from delegating to
+itself:
+
+```bash
+claude mcp add agents-bridge -s user -- ~/.local/bin/bridge serve --host claude
+```
+
+Codex reads `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.agents-bridge]
+command = "/home/you/.local/bin/bridge"
+args = ["serve", "--host", "codex"]
+```
+
+Restart the host agent afterwards. It will see `ask_<agent>`, `await_agent`,
+`steer_agent`, `cancel_agent` and `list_runs`, and nothing that can change
+policy. Run `bridge watch` in a second terminal to see and steer what the
+delegated agent is doing. Full reference, including every placeholder and the
+operator verbs: [`docs/04-config-schema.md`](docs/04-config-schema.md).
+
 ## Building and testing
 
 ```bash
@@ -106,10 +167,12 @@ dispatch only — never on a pull request from a fork.
 
 ## Requirements
 
-Go 1.26+ to build (see `go.mod`). **v1.0 supports Linux and macOS**; Windows targets v1.1
-(all six targets compile and are CI-built from the start, but the Windows binaries are
-unsupported previews until that port has actually been executed). The target agents' own
-CLIs, already logged in.
+Go 1.26+ to build (see `go.mod`). **v1.0 supports Linux and macOS**; Windows targets v1.1.
+As of 2026-09-16 the Windows seams are executed in CI — the unit suite and `bridge doctor`
+both run on `windows-latest` — but the binaries stay unsupported previews because the
+blocker is unchanged: npm installs `claude` and `codex` as `.cmd` shims, which the loader
+refuses as script launchers, and CI asserts that refusal. The target agents' own CLIs,
+already logged in.
 
 ## Versioning and compatibility
 
