@@ -79,11 +79,15 @@ sboms:
 signs:
   - id: bridge-cosign
     cmd: cosign
-    certificate: "${artifact}.pem"
+    # cosign v3 (what sigstore/cosign-installer installs by default) deprecated
+    # --output-certificate and --output-signature in favour of one Sigstore
+    # bundle carrying both. Passing the v2 flags made sign-blob try to write a
+    # bundle at the empty path it was never given, which is the error the first
+    # release that ever reached this stanza failed with.
+    signature: "${artifact}.bundle"
     args:
       - sign-blob
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
+      - "--bundle=${signature}"
       - "${artifact}"
       - --yes
     artifacts: checksum

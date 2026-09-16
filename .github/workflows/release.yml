@@ -80,6 +80,11 @@ jobs:
       # every archive and SBOM is listed there with its sha256, so one signature
       # covers all of them transitively and there is one artifact to verify.
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pinned for the same reason the scanners are: the installer's default
+          # tracks cosign's latest, and cosign v3 changing sign-blob's flags is
+          # what broke the first release that reached the signing stanza.
+          cosign-release: 'v3.0.6'
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: '~> v2'

@@ -203,6 +203,25 @@ security-relevant mechanisms differ by platform and are implemented behind four 
   rather than left readable if the restriction cannot be applied. The config file's own
   permission check is still unimplemented on Windows and refuses instead (v1.1).
 
+## Verifying a release
+
+Every release publishes `checksums.txt`, which lists each archive with its
+SHA-256, and `checksums.txt.bundle`, a Sigstore bundle signing that file. One
+signature therefore covers every artifact transitively. There is no signing key
+to trust: the bundle is keyless, bound to this repository's release workflow.
+
+```bash
+cosign verify-blob \
+  --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github.com/OxCom/agents-mcp-bridge/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum --check --ignore-missing checksums.txt
+```
+
+Build provenance is separate and covers each archive individually:
+`gh attestation verify <archive> --repo OxCom/agents-mcp-bridge`.
+
 ## Supported versions
 
 The latest minor release receives security fixes. Adapters are smoke-tested in CI against
