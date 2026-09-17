@@ -65,15 +65,22 @@ type Run struct {
 	// later, so the live set never exceeds max_concurrent_runs. It is
 	// accounting only: no caller-facing state, snapshot or transition reads
 	// it, and Supersede still performs the real terminal transition.
-	retiring           bool
-	output             string
-	failure            string // caller-facing: generic, leaks nothing about the host
-	diag               string // operator-facing: full detail, goes to the log and audit
-	exitCode           *int
-	truncated          bool
-	done               chan struct{}
-	cancel             func()
-	vendorSession      string
+	retiring      bool
+	output        string
+	failure       string // caller-facing: generic, leaks nothing about the host
+	diag          string // operator-facing: full detail, goes to the log and audit
+	exitCode      *int
+	truncated     bool
+	done          chan struct{}
+	cancel        func()
+	vendorSession string
+	// vendorErrors holds the MESSAGES of error events the agent's own stream
+	// reported; vendorErrorCount holds how many such events there were. They
+	// differ because an error event need not carry text, and an occurrence
+	// with nothing to show is still an occurrence. Both are capped: an agent
+	// looping on an error must not grow the run without bound.
+	vendorErrors       []string
+	vendorErrorCount   int
 	transcriptOverflow bool
 	worktree           any
 	steerCh            *steerChannel
@@ -155,9 +162,17 @@ type Snapshot struct {
 	// VendorSession is the id the target agent generated. It stays inside the
 	// bridge: the caller receives an opaque handle instead.
 	VendorSession string
-	SteerCount    int
-	AgentSteers   int
-	Question      *Question
+	// VendorErrors are the messages of error events the agent's stream
+	// reported. Vendor words, so a caller-facing path must envelope them.
+	VendorErrors []string
+	// VendorErrorCount is how many error events the stream carried, which is
+	// at least len(VendorErrors): an event need not carry a message. It is a
+	// count of what the vendor reported, not a verdict on the run — vendors
+	// emit these for their own config warnings too.
+	VendorErrorCount int
+	SteerCount       int
+	AgentSteers      int
+	Question         *Question
 	// Transcript is the on-disk event log. Operator-facing only; returning it
 	// to the caller would let it read the raw, un-enveloped stream.
 	Transcript string
@@ -192,29 +207,31 @@ func (r *Run) snapshot() Snapshot {
 		q = &cp
 	}
 	return Snapshot{
-		ID:              r.ID,
-		Agent:           r.Agent,
-		State:           r.state,
-		Output:          output,
-		Failure:         r.failure,
-		Diagnostic:      r.diag,
-		ExitCode:        r.exitCode,
-		Truncated:       r.truncated,
-		Started:         r.Started,
-		Finished:        r.Finished,
-		Duration:        d,
-		Awaited:         r.awaited,
-		Confined:        r.Confined,
-		SandboxEnforced: r.SandboxEnforced,
-		VendorSession:   r.vendorSession,
-		SteerCount:      r.steerCount,
-		AgentSteers:     r.agentSteers,
-		Question:        q,
-		Transcript:      r.TranscriptPath,
-		Mode:            r.Mode,
-		CWD:             r.CWD,
-		ResumedFrom:     r.ResumedFrom,
-		SupersededBy:    r.resumedBy,
+		ID:               r.ID,
+		Agent:            r.Agent,
+		State:            r.state,
+		Output:           output,
+		Failure:          r.failure,
+		Diagnostic:       r.diag,
+		ExitCode:         r.exitCode,
+		Truncated:        r.truncated,
+		Started:          r.Started,
+		Finished:         r.Finished,
+		Duration:         d,
+		Awaited:          r.awaited,
+		Confined:         r.Confined,
+		SandboxEnforced:  r.SandboxEnforced,
+		VendorSession:    r.vendorSession,
+		VendorErrors:     append([]string(nil), r.vendorErrors...),
+		VendorErrorCount: r.vendorErrorCount,
+		SteerCount:       r.steerCount,
+		AgentSteers:      r.agentSteers,
+		Question:         q,
+		Transcript:       r.TranscriptPath,
+		Mode:             r.Mode,
+		CWD:              r.CWD,
+		ResumedFrom:      r.ResumedFrom,
+		SupersededBy:     r.resumedBy,
 	}
 }
 
@@ -225,6 +242,27 @@ func (r *Run) setVendorSession(id string) {
 	defer r.mu.Unlock()
 	if r.vendorSession == "" {
 		r.vendorSession = id
+	}
+}
+
+// maxVendorErrors bounds what one run may accumulate: the caller needs to know
+// the agent reported errors, not to receive every repetition of them.
+const maxVendorErrors = 10
+
+// noteVendorError records an error the agent's own stream reported.
+//
+// The occurrence is counted independently of the message, because a vendor
+// that emits an error event carrying no text has still reported an error and
+// the caller's count must say so. The cap bounds both.
+func (r *Run) noteVendorError(text string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.vendorErrorCount >= maxVendorErrors {
+		return
+	}
+	r.vendorErrorCount++
+	if text != "" {
+		r.vendorErrors = append(r.vendorErrors, text)
 	}
 }
 

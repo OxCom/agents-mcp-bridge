@@ -144,10 +144,28 @@ func DecodeEvents(r io.Reader) ([]Event, error) {
 	return out, sc.Err()
 }
 
-// Digest summarises a stream for a caller who is polling rather than watching.
-// It reports activity without replaying the agent's words, so a progress check
-// costs the caller almost nothing.
+// Digest summarises a stream for the OPERATOR: counts plus the last tool and
+// the last file the agent touched. Those two are vendor-derived strings, which
+// is why this form is for the watch TUI only — the operator is reading the raw
+// stream in the same window, so narrowing it there gains nothing.
+//
+// A caller-facing path uses DigestCounts instead. Two functions rather than a
+// flag: the distinction is which audience a call site serves, and a bare
+// boolean at the call site would not say that.
 func Digest(events []Event) string {
+	return digest(events, true)
+}
+
+// DigestCounts summarises a stream for the CALLING AGENT, which is polling
+// rather than watching. It carries counts only: it reaches the caller as
+// `notice` and as a progress message, both deliberately outside the
+// untrusted-data envelope (FR-13.3), so no vendor-derived string may appear in
+// it. Token counts are numbers the bridge reports, not the agent's words.
+func DigestCounts(events []Event) string {
+	return digest(events, false)
+}
+
+func digest(events []Event, lastSeen bool) string {
 	if len(events) == 0 {
 		return "no activity yet"
 	}
@@ -178,10 +196,10 @@ func Digest(events []Event) string {
 	}
 	s := fmt.Sprintf("%d events: %d tool calls, %d shell commands, %d file changes, %d messages",
 		len(events), tools, shells, files, messages)
-	if lastTool != "" {
+	if lastSeen && lastTool != "" {
 		s += fmt.Sprintf("; last tool %s", lastTool)
 	}
-	if lastFile != "" {
+	if lastSeen && lastFile != "" {
 		s += fmt.Sprintf("; last file %s", lastFile)
 	}
 	if usage != nil {

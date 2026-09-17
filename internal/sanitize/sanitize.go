@@ -37,7 +37,51 @@ const (
 // The closing delimiter is escaped inside the payload first: the first thing a
 // hostile agent would emit is the tag that ends its own envelope.
 func Envelope(source, runID, text string, maxBytes int) Result {
-	r := Clean(text, maxBytes)
+	return wrap(source, runID, Clean(text, maxBytes), maxBytes)
+}
+
+// EnvelopeTail wraps body and tail as one envelope, budgeting tail first so
+// that body is what gets shortened when the two together exceed maxBytes.
+//
+// It exists for text whose meaning is lost if it is truncated away: a vendor's
+// error messages are the evidence behind the count the caller is handed, and a
+// count whose evidence was cut off is a signal with nothing behind it.
+//
+// The two parts are cleaned separately and joined by a newline, so a closing
+// delimiter cannot be assembled across the seam.
+func EnvelopeTail(source, runID, body, tail string, maxBytes int) Result {
+	if tail == "" {
+		return Envelope(source, runID, body, maxBytes)
+	}
+	t := Clean(tail, maxBytes)
+
+	budget := 0 // Clean reads 0 as "no cap", which is what maxBytes <= 0 means
+	if maxBytes > 0 {
+		budget = maxBytes - len(t.Text) - 1 // the joining newline
+	}
+	var b Result
+	switch {
+	case maxBytes > 0 && budget <= 0:
+		// The tail alone fills the budget. The body is dropped rather than
+		// silently interleaved, and the result says it was truncated.
+		b = Result{Truncated: body != ""}
+	default:
+		b = Clean(body, budget)
+	}
+
+	text := t.Text
+	if b.Text != "" {
+		text = b.Text + "\n" + t.Text
+	}
+	return wrap(source, runID, Result{
+		Text:      text,
+		Truncated: b.Truncated || t.Truncated,
+		Removed:   b.Removed + t.Removed,
+	}, maxBytes)
+}
+
+// wrap builds the envelope around already-cleaned text.
+func wrap(source, runID string, r Result, maxBytes int) Result {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s source=%q run=%q>\n", openTag, source, runID)
 	b.WriteString(preamble)

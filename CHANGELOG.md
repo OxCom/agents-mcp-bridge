@@ -130,6 +130,37 @@ tagged release, so there are no version headings or dates below — only the acc
 
 ### Fixed
 
+- `await_agent` returned the run's result only as a text content block. `mcp.AddTool` infers
+  an output schema from the tool's typed return value, and a host that sees an output schema
+  may render `structuredContent` alone — Claude Code does — so the caller saw a run id, a
+  state and no output at all, for the result, a `needs_input` question, the progress digest
+  and the `superseded` pointer alike. Each now travels in both halves of the result: vendor
+  words as the same enveloped string the text block carries, bridge-authored text as
+  `notice` outside the envelope (FR-13).
+- A vendor that reported an error in its event stream and still exited 0 — Codex on a usage
+  limit — was indistinguishable from a success. Stream error events are now recorded on the
+  run, returned inside the envelope, and counted as `vendor_errors` (FR-14).
+- `vendor_error` was a boolean verdict on a signal that carries no verdict. Codex emits
+  `item.completed / error` for warnings about the operator's own config — a malformed agent
+  role file, a shortened skill description — so a run that answered correctly and exited 0
+  came back flagged as a soft failure; three such events on one PONG run (codex 0.154.0). The
+  field is now `vendor_errors`, a count of what the stream reported, and the run's state
+  remains the only field that says whether the run failed (FR-14.2).
+- The still-running `notice` and the progress notification carried the agent's last tool name
+  and last changed path, both derived from the vendor's stream, in text that is deliberately
+  outside the untrusted-data envelope. Both now use a counts-only digest
+  (`stream.DigestCounts`); the operator's watch TUI keeps the full one (FR-13.3).
+- A run whose output filled `max_output_bytes` returned a vendor-error count with the
+  messages truncated off the tail. The messages are now budgeted before the answer, so the
+  answer is what gets shortened (FR-14.3).
+- An error event carrying no message was dropped, leaving the count at 0 for a run whose
+  stream had reported an error. The occurrence is now recorded independently of the text,
+  under the same per-run cap (FR-14.4).
+- Every run was created with `Spec.SandboxEnforced` unset, so the run carried `false`
+  regardless of the policy decision. `bridge runs` and the TUI header labelled sandboxed runs
+  UNSANDBOXED, and `await_agent` reported `confinement: ""`, `sandboxed: false` for a run
+  `ask_*` had correctly reported as worktree-confined and sandboxed. The decision's value now
+  reaches the run, and `await_agent` reads both fields off it (FR-13.4).
 - The interactive gate advertised its `input` parameter as an array of bytes, inferred from a
   `json.RawMessage` field. A vendor MCP client validates a call against the advertised schema
   before sending it, so a real `claude` child's `AskUserQuestion` never left the child and the

@@ -133,6 +133,23 @@ trust boundary, not plumbing. The full analysis is in
     call. The evidence is the source — every `net` call in the tree is a unix-socket or
     named-pipe `Listen`/`Dial`, and no HTTP client is constructed anywhere.
 
+14. **The envelope travels with the text into every half of a tool result.** *Enforced*
+    (asserted by `cmd/bridge.TestStructuredContentCarriesTheEnvelopedResult` and
+    `TestStructuredContentCarriesTheEnvelopedQuestion`, which drive a real MCP client over an
+    in-memory transport and read `structuredContent`, the half Claude Code renders): the
+    result and a `needs_input` question appear in `structuredContent` as the same enveloped
+    string the text block carries, never as raw vendor text. Before this, the enveloped text
+    was the only copy and a host rendering `structuredContent` alone showed the caller no
+    output at all — the envelope was correct and never arrived. Bridge-authored text about
+    the run travels as `notice`, outside the envelope, because it is not the agent's words —
+    and it is bridge-authored in full: the activity digest carried there and in a progress
+    notification is counts only (`stream.DigestCounts`), never a string derived from the
+    agent's stream. It previously appended the last tool name and the last changed path,
+    both vendor-derived, to text that by construction has no envelope; asserted by
+    `cmd/bridge.TestTheStillRunningNoticeCarriesNoVendorDerivedText` and
+    `stream.TestDigestCountsCarriesNoVendorDerivedStrings`. The operator's watch TUI keeps
+    the full digest, which is not a caller-facing surface.
+
 ## Security properties we do NOT claim
 
 - **The bridge is not a sandbox.** It configures the *target CLI's* sandbox and confines

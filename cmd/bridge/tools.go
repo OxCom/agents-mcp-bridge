@@ -64,14 +64,35 @@ type askOutput struct {
 	WatchHint   string `json:"watch_hint"`
 	Confinement string `json:"confinement"`
 	Sandboxed   bool   `json:"sandboxed"`
+	// Output carries the run's result — or, on needs_input, its question —
+	// as the SAME enveloped string the tool result's text content holds, byte
+	// for byte. It is not a second copy of the vendor text: it is the copy,
+	// duplicated across the two halves of one result because a host may render
+	// either. mcp.AddTool infers an outputSchema from this struct, and a host
+	// that sees an outputSchema may render structuredContent alone (Claude
+	// Code does), so text-only content reaches no caller. What must never
+	// appear here is RAW vendor text: the envelope's provenance marking is
+	// inside this string, so the marking travels wherever the string is
+	// rendered (FR-13).
+	Output string `json:"output,omitempty"`
+	// Notice is bridge-authored text about the run itself: still running with
+	// an activity digest, or continued as another run. It is never vendor
+	// words, so it carries no envelope — the same distinction
+	// streamProgress's message draws.
+	Notice string `json:"notice,omitempty"`
+	// VendorErrors is how many error events the agent's own stream carried:
+	// "the agent's stream reported N errors", not "this run failed". A vendor
+	// emits these for warnings about the OPERATOR's own config — Codex reports
+	// a malformed agent role file and a shortened skill description this way —
+	// so a non-zero count is not a failure verdict, and the run's state is the
+	// only thing that says whether it failed. The messages themselves are
+	// vendor words and sit inside Output, enveloped; this count is the
+	// machine-readable half (FR-14).
+	VendorErrors int `json:"vendor_errors,omitempty"`
 	// SessionHandle lets the caller refer back to a needs_input run. It is
 	// the run id, not a vendor session id: a vendor id in the caller's hands
 	// would be a session-takeover primitive (docs/11 §2). When ask_* grows a
-	// real bridge-issued session handle, this becomes it. The question
-	// itself is NOT carried here: it is untrusted vendor output, and the
-	// enveloped tool-result text is this codebase's one provenance-marked
-	// channel for it. A second, unmarked copy in structured output would be
-	// a channel where the envelope's marking is absent by construction.
+	// real bridge-issued session handle, this becomes it.
 	SessionHandle string `json:"session_handle,omitempty"`
 	// SupersededBy is the successor run's id, set only when State is
 	// "superseded": this run was continued, and its result now lives there.
@@ -172,6 +193,13 @@ func (b *bridge) hasWriteAdapter() bool {
 	return false
 }
 
+func confinementLabel(confined bool) string {
+	if !confined {
+		return "none"
+	}
+	return "worktree"
+}
+
 func describeAdapter(a *config.Adapter) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(a.Description))
@@ -226,10 +254,7 @@ func (b *bridge) makeAsk(agentID string) func(context.Context, *mcp.CallToolRequ
 			b.changes.put(r.ID, &pendingChanges{wt: wt})
 		}
 
-		confinement := "worktree"
-		if !decision.Confined {
-			confinement = "none"
-		}
+		confinement := confinementLabel(decision.Confined)
 		enforced := decision.SandboxEnforced
 		_ = b.audit.Write(audit.Entry{
 			Event:           "run.admitted",
@@ -253,8 +278,9 @@ func (b *bridge) makeAsk(agentID string) func(context.Context, *mcp.CallToolRequ
 			WatchHint:   "bridge watch " + r.ID,
 			Confinement: confinement,
 			Sandboxed:   decision.SandboxEnforced,
+			Notice:      "run " + r.ID + " started; collect it with await_agent",
 		}
-		return textResult("run %s started; collect it with await_agent", r.ID), out, nil
+		return textResult("%s", out.Notice), out, nil
 	}
 }
 
@@ -341,21 +367,25 @@ func (b *bridge) buildSpec(d *policy.Decision, argvPrompt string, cont *continua
 		return run.Spec{}, err
 	}
 	spec := run.Spec{
-		RunID:         runID,
-		Agent:         a.ID,
-		HostAgent:     b.host,
-		Command:       a.ResolvedCommand,
-		Args:          args,
-		Env:           adapter.BuildEnv(b.cfg.EnvAllowlist, b.depth),
-		CWD:           d.CWD,
-		Mode:          string(d.Mode),
-		Confined:      d.Confined,
-		Depth:         b.depth,
-		Prompt:        prompt,
-		PromptStdin:   a.Invoke.Prompt != "argv",
-		Timeout:       time.Duration(b.cfg.Defaults.TimeoutS) * time.Second,
-		MaxOutput:     b.cfg.Defaults.MaxOutputBytes,
-		MaxEventBytes: b.cfg.Defaults.MaxEventBytes,
+		RunID:     runID,
+		Agent:     a.ID,
+		HostAgent: b.host,
+		Command:   a.ResolvedCommand,
+		Args:      args,
+		Env:       adapter.BuildEnv(b.cfg.EnvAllowlist, b.depth),
+		CWD:       d.CWD,
+		Mode:      string(d.Mode),
+		Confined:  d.Confined,
+		// Without this the Run carries the zero value, and every surface that
+		// reads it off the run rather than off the decision — await_agent,
+		// `bridge runs`, the TUI header — labels a sandboxed run UNSANDBOXED.
+		SandboxEnforced: d.SandboxEnforced,
+		Depth:           b.depth,
+		Prompt:          prompt,
+		PromptStdin:     a.Invoke.Prompt != "argv",
+		Timeout:         time.Duration(b.cfg.Defaults.TimeoutS) * time.Second,
+		MaxOutput:       b.cfg.Defaults.MaxOutputBytes,
+		MaxEventBytes:   b.cfg.Defaults.MaxEventBytes,
 	}
 
 	// A full-tier adapter has a Go parser, so its stream is normalised and
@@ -491,7 +521,13 @@ func (b *bridge) awaitAgent(ctx context.Context, req *mcp.CallToolRequest, in aw
 	s := r.Await(timeout)
 	stopProgress()
 
-	out := askOutput{RunID: s.ID, State: string(s.State), WatchHint: "bridge watch " + s.ID}
+	out := askOutput{
+		RunID:       s.ID,
+		State:       string(s.State),
+		WatchHint:   "bridge watch " + s.ID,
+		Confinement: confinementLabel(s.Confined),
+		Sandboxed:   s.SandboxEnforced,
+	}
 
 	// superseded is terminal (StateSuperseded.IsTerminal() is true), so a
 	// caller that keeps polling learns where its work went instead of
@@ -499,8 +535,9 @@ func (b *bridge) awaitAgent(ctx context.Context, req *mcp.CallToolRequest, in aw
 	// try to collect a worktree that continuation already retired.
 	if s.State == run.StateSuperseded {
 		out.SupersededBy = s.SupersededBy
-		return textResult("run %s was continued as %s; its result now lives there — call "+
-			"await_agent on %s instead", s.ID, s.SupersededBy, s.SupersededBy), out, nil
+		out.Notice = fmt.Sprintf("run %s was continued as %s; its result now lives there — call "+
+			"await_agent on %s instead", s.ID, s.SupersededBy, s.SupersededBy)
+		return textResult("%s", out.Notice), out, nil
 	}
 
 	// needs_input is neither finished nor running: the child is gone and the
@@ -535,6 +572,7 @@ func (b *bridge) awaitAgent(ctx context.Context, req *mcp.CallToolRequest, in aw
 		// primitive).
 		out.SessionHandle = s.ID
 		env := sanitize.Envelope(s.Agent, s.ID, text, b.cfg.Defaults.MaxOutputBytes)
+		out.Output = env.Text
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: env.Text}},
 		}, out, nil
@@ -544,11 +582,12 @@ func (b *bridge) awaitAgent(ctx context.Context, req *mcp.CallToolRequest, in aw
 		digest := "no activity recorded"
 		if s.Transcript != "" {
 			if events, err := stream.ReadTranscript(s.Transcript); err == nil {
-				digest = stream.Digest(events)
+				digest = stream.DigestCounts(events)
 			}
 		}
-		return textResult("run %s is still running after %s (%s); call await_agent again",
-			s.ID, timeout, digest), out, nil
+		out.Notice = fmt.Sprintf("run %s is still running after %s (%s); call await_agent again",
+			s.ID, timeout, digest)
+		return textResult("%s", out.Notice), out, nil
 	}
 
 	b.recordCompletion(s)
@@ -563,7 +602,22 @@ func (b *bridge) awaitAgent(ctx context.Context, req *mcp.CallToolRequest, in aw
 	if s.Failure != "" {
 		body = strings.TrimSpace(s.Output + "\n[failure] " + s.Failure)
 	}
-	env := sanitize.Envelope(s.Agent, s.ID, body, b.cfg.Defaults.MaxOutputBytes)
+	// A vendor's stream can carry error events while the process exits 0 —
+	// a usage limit, but far more often a warning about the operator's own
+	// config. The messages are vendor words, so they go inside the envelope
+	// with the rest of the body; out.VendorErrors is the machine-readable
+	// half, a count rather than a verdict.
+	//
+	// They are passed as the envelope's tail so the budget reaches them first:
+	// truncating away the messages behind a non-zero count would leave the
+	// caller a signal with no evidence.
+	tail := ""
+	if len(s.VendorErrors) > 0 {
+		tail = "[vendor reported] " + strings.Join(s.VendorErrors, "\n[vendor reported] ")
+	}
+	out.VendorErrors = s.VendorErrorCount
+	env := sanitize.EnvelopeTail(s.Agent, s.ID, body, tail, b.cfg.Defaults.MaxOutputBytes)
+	out.Output = env.Text
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: env.Text}},
 	}, out, nil
@@ -605,7 +659,7 @@ func (b *bridge) streamProgress(ctx context.Context, req *mcp.CallToolRequest, r
 				message := string(s.State)
 				if s.Transcript != "" {
 					if events, err := stream.ReadTranscript(s.Transcript); err == nil {
-						message = stream.Digest(events)
+						message = stream.DigestCounts(events)
 					}
 				}
 				sent++
@@ -765,8 +819,9 @@ func (b *bridge) steerAgent(ctx context.Context, req *mcp.CallToolRequest, in st
 	if adapter.Capabilities.Steer == config.SteerTrue {
 		delivery = "immediately"
 	}
-	return textResult("guidance queued for run %s, delivered %s", in.RunID, delivery),
-		askOutput{RunID: in.RunID, State: string(s.State)}, nil
+	notice := fmt.Sprintf("guidance queued for run %s, delivered %s", in.RunID, delivery)
+	return textResult("%s", notice),
+		askOutput{RunID: in.RunID, State: string(s.State), Notice: notice}, nil
 }
 
 func (b *bridge) cancelAgent(ctx context.Context, req *mcp.CallToolRequest, in runIDInput) (*mcp.CallToolResult, askOutput, error) {
@@ -776,8 +831,9 @@ func (b *bridge) cancelAgent(ctx context.Context, req *mcp.CallToolRequest, in r
 	}
 	r.Cancel()
 	s := r.Await(5 * time.Second)
-	return textResult("run %s: %s", s.ID, s.State),
-		askOutput{RunID: s.ID, State: string(s.State)}, nil
+	notice := fmt.Sprintf("run %s: %s", s.ID, s.State)
+	return textResult("%s", notice),
+		askOutput{RunID: s.ID, State: string(s.State), Notice: notice}, nil
 }
 
 type listOutput struct {

@@ -567,3 +567,338 @@ func TestAwaitTimeoutCannotExtendARun(t *testing.T) {
 		t.Fatalf("await waited %s: the caller's timeout extended the run", elapsed)
 	}
 }
+
+// callToolStructured decodes the structuredContent a real MCP client receives,
+// which is the ONLY half of a tool result a host with an outputSchema is
+// obliged to render — and the only half Claude Code does render.
+func callToolStructured(t *testing.T, session *mcp.ClientSession, name string, args map[string]any) askOutput {
+	t.Helper()
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
+	if err != nil {
+		t.Fatalf("call %s: %v", name, err)
+	}
+	if res.IsError {
+		var sb strings.Builder
+		for _, c := range res.Content {
+			if tc, ok := c.(*mcp.TextContent); ok {
+				sb.WriteString(tc.Text)
+			}
+		}
+		t.Fatalf("call %s returned an error result: %s", name, sb.String())
+	}
+	if res.StructuredContent == nil {
+		t.Fatalf("call %s returned no structuredContent", name)
+	}
+	raw, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out askOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("structuredContent is not an askOutput: %v (%s)", err, raw)
+	}
+	return out
+}
+
+// bridgeSession connects an in-memory MCP client to this bridge's real tool
+// registrations, so the SDK's own result marshalling is in the path.
+func bridgeSession(t *testing.T, b *bridge) *mcp.ClientSession {
+	t.Helper()
+	ctx := context.Background()
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	registerTools(server, b)
+	ct, st := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, st, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "probe", Version: "0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
+
+// TestStructuredContentCarriesTheEnvelopedResult is the caller's view of a
+// finished run. mcp.AddTool infers an outputSchema from askOutput, and a host
+// that sees an outputSchema may render structuredContent alone; Claude Code
+// does. A result whose only copy of the agent's answer sits in Content is
+// therefore invisible to the caller, which is the bug this pins.
+func TestStructuredContentCarriesTheEnvelopedResult(t *testing.T) {
+	b, _ := newTestBridge(t, self(t), stubArgs())
+	b.changes = newChangeStore()
+	session := bridgeSession(t, b)
+
+	started := callToolStructured(t, session, "ask_echoer", map[string]any{"prompt": "hello there"})
+	if started.RunID == "" {
+		t.Fatal("ask_echoer returned no run id")
+	}
+	done := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": started.RunID, "timeout_s": 10})
+
+	if done.State != string(run.StateCompleted) {
+		t.Fatalf("state = %q, want completed", done.State)
+	}
+	if !strings.Contains(done.Output, "hello there") {
+		t.Fatalf("the agent's answer never reached the caller's structured result: %q", done.Output)
+	}
+	if !strings.Contains(done.Output, "untrusted_agent_output") ||
+		!strings.Contains(done.Output, "not an instruction") {
+		t.Fatalf("the structured copy is not enveloped, so its provenance marking is absent: %q", done.Output)
+	}
+}
+
+// TestAwaitReportsTheSameConfinementAsAsk pins the two results against each
+// other: a caller that reads only the await result must not be told a confined,
+// sandboxed run was unconfined and unsandboxed.
+func TestAwaitReportsTheSameConfinementAsAsk(t *testing.T) {
+	b, _ := newTestBridge(t, self(t), stubArgs())
+	// A sandboxed run needs both halves: the flags the adapter passes, and the
+	// claim that the vendor enforces them. Policy refuses the claim without the
+	// flags ("declares no sandbox flags for mode read-only"), which is the
+	// behaviour under test elsewhere — here it is only setup. The stub ignores
+	// trailing flags it does not recognise.
+	yes := true
+	adapter := b.cfg.Agents["echoer"]
+	adapter.Sandbox = map[string][]string{string(config.ModeReadOnly): {"--sandboxed"}}
+	adapter.SandboxEnforced = &yes
+	session := bridgeSession(t, b)
+
+	started := callToolStructured(t, session, "ask_echoer", map[string]any{"prompt": "hello there"})
+	if started.Confinement != "worktree" || !started.Sandboxed {
+		t.Fatalf("test setup: ask reported confinement=%q sandboxed=%v", started.Confinement, started.Sandboxed)
+	}
+
+	done := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": started.RunID, "timeout_s": 10})
+
+	if done.Confinement != started.Confinement {
+		t.Errorf("await confinement = %q, ask said %q", done.Confinement, started.Confinement)
+	}
+	if done.Sandboxed != started.Sandboxed {
+		t.Errorf("await sandboxed = %v, ask said %v", done.Sandboxed, started.Sandboxed)
+	}
+}
+
+// TestStructuredContentCarriesTheEnvelopedQuestion is the same defect on the
+// needs_input path: a question the caller cannot see cannot be handed to a
+// human, which is the only thing that path asks of it.
+func TestStructuredContentCarriesTheEnvelopedQuestion(t *testing.T) {
+	b, _ := newTierFullTestBridge(t)
+	r := newNeedsInputRun(t, b)
+	session := bridgeSession(t, b)
+
+	out := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": r.ID, "timeout_s": 1})
+
+	if out.State != string(run.StateNeedsInput) {
+		t.Fatalf("state = %q, want needs_input", out.State)
+	}
+	if !strings.Contains(out.Output, "red or blue?") {
+		t.Fatalf("the question never reached the caller's structured result: %q", out.Output)
+	}
+	if !strings.Contains(out.Output, "untrusted_agent_output") {
+		t.Fatalf("the question is vendor output and must stay enveloped: %q", out.Output)
+	}
+	if strings.Contains(out.Output, r.TranscriptPath) {
+		t.Fatal("the transcript path must never reach the caller")
+	}
+}
+
+// TestStructuredContentCarriesTheStillRunningNotice keeps the third caller-
+// visible channel honest: a "running" result must say what the agent has been
+// doing, or repeated awaits look identical to a hang.
+func TestStructuredContentCarriesTheStillRunningNotice(t *testing.T) {
+	b, _ := newTestBridge(t, self(t), stubArgs("--sleep", "30s"))
+	b.changes = newChangeStore()
+	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: stubArgs("--sleep", "30s"), Prompt: "argv"}
+	session := bridgeSession(t, b)
+
+	started := callToolStructured(t, session, "ask_echoer", map[string]any{"prompt": "slow"})
+	out := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": started.RunID, "timeout_s": 1})
+
+	if out.State == string(run.StateCompleted) {
+		t.Skip("the stub finished before the await timeout; nothing to assert")
+	}
+	if out.Notice == "" {
+		t.Fatal("a still-running result told the caller nothing at all")
+	}
+}
+
+// TestACleanExitWithAVendorErrorIsReportedAsSuch pins the difference between
+// "the agent did the work" and "the agent reported an error and exited 0".
+// Codex does the latter on a usage limit, so exit status alone cannot tell the
+// caller which happened.
+func TestACleanExitWithAVendorErrorIsReportedAsSuch(t *testing.T) {
+	fixture := filepath.Join(t.TempDir(), "stream.jsonl")
+	lines := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"th_1"}`,
+		`{"type":"item.completed","item":{"type":"agent_message","text":"partial answer"}}`,
+		`{"type":"item.completed","item":{"type":"error","message":"You've hit your usage limit."}}`,
+	}, "\n")
+	if err := os.WriteFile(fixture, []byte(lines+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	b, _ := newTierFullTestBridge(t)
+	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: stubArgs("--emit", fixture), Prompt: "argv"}
+	b.changes = newChangeStore()
+	session := bridgeSession(t, b)
+
+	started := callToolStructured(t, session, "ask_echoer", map[string]any{"prompt": "do the work"})
+	done := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": started.RunID, "timeout_s": 10})
+
+	if done.State != string(run.StateCompleted) {
+		t.Fatalf("state = %q, want completed (the vendor exited 0)", done.State)
+	}
+	if done.VendorErrors != 1 {
+		t.Fatalf("vendor_errors = %d, want 1: a run whose stream reported an error came back indistinguishable from a success", done.VendorErrors)
+	}
+	if !strings.Contains(done.Output, "usage limit") {
+		t.Fatalf("the vendor's error text never reached the caller: %q", done.Output)
+	}
+	if !strings.Contains(done.Output, "untrusted_agent_output") {
+		t.Fatalf("the error text is vendor output and must stay enveloped: %q", done.Output)
+	}
+}
+
+// emitFixture writes a recorded vendor stream the stub can replay and returns
+// its path.
+func emitFixture(t *testing.T, lines ...string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stream.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestVendorErrorsIsACountNotAFailureVerdict pins FR-14's structured field.
+// Codex emits error events for its own config warnings — a malformed agent
+// role file, a shortened skill description — on runs that answer correctly and
+// exit 0, so the field reports how many the stream carried and nothing more.
+func TestVendorErrorsIsACountNotAFailureVerdict(t *testing.T) {
+	fixture := emitFixture(t,
+		`{"type":"thread.started","thread_id":"th_1"}`,
+		`{"type":"item.completed","item":{"type":"error","message":"Ignoring malformed agent role definition"}}`,
+		`{"type":"item.completed","item":{"type":"error","message":"Skill descriptions were shortened"}}`,
+		`{"type":"item.completed","item":{"type":"agent_message","text":"PONG"}}`,
+	)
+
+	b, _ := newTierFullTestBridge(t)
+	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: stubArgs("--emit", fixture), Prompt: "argv"}
+	b.changes = newChangeStore()
+	session := bridgeSession(t, b)
+
+	started := callToolStructured(t, session, "ask_echoer", map[string]any{"prompt": "PING"})
+	done := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": started.RunID, "timeout_s": 10})
+
+	if done.State != string(run.StateCompleted) {
+		t.Fatalf("state = %q, want completed: config warnings are not a failure", done.State)
+	}
+	if done.VendorErrors != 2 {
+		t.Fatalf("vendor_errors = %d, want 2", done.VendorErrors)
+	}
+	for _, want := range []string{"malformed agent role", "shortened", "PONG"} {
+		if !strings.Contains(done.Output, want) {
+			t.Fatalf("the body lost %q: %q", want, done.Output)
+		}
+	}
+	if strings.Contains(done.Output, "[vendor error]") {
+		t.Fatalf("the body label still asserts failure: %q", done.Output)
+	}
+}
+
+// TestAnErrorEventWithNoMessageIsStillCounted is change D end to end: the
+// occurrence is what the count reports, not the presence of text to show.
+func TestAnErrorEventWithNoMessageIsStillCounted(t *testing.T) {
+	fixture := emitFixture(t,
+		`{"type":"thread.started","thread_id":"th_1"}`,
+		`{"type":"item.completed","item":{"type":"error"}}`,
+		`{"type":"item.completed","item":{"type":"agent_message","text":"PONG"}}`,
+	)
+
+	b, _ := newTierFullTestBridge(t)
+	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: stubArgs("--emit", fixture), Prompt: "argv"}
+	b.changes = newChangeStore()
+	session := bridgeSession(t, b)
+
+	started := callToolStructured(t, session, "ask_echoer", map[string]any{"prompt": "PING"})
+	done := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": started.RunID, "timeout_s": 10})
+
+	if done.VendorErrors != 1 {
+		t.Fatalf("vendor_errors = %d, want 1: an error event with no message was dropped", done.VendorErrors)
+	}
+}
+
+// TestVendorErrorTextSurvivesOutputTruncation keeps the count's evidence with
+// the count. The answer is what gets shortened when the two together exceed
+// max_output_bytes.
+func TestVendorErrorTextSurvivesOutputTruncation(t *testing.T) {
+	fixture := emitFixture(t,
+		`{"type":"thread.started","thread_id":"th_1"}`,
+		`{"type":"item.completed","item":{"type":"agent_message","text":"`+strings.Repeat("a", 4000)+`"}}`,
+		`{"type":"item.completed","item":{"type":"error","message":"SENTINEL-usage-limit"}}`,
+	)
+
+	b, _ := newTierFullTestBridge(t)
+	b.cfg.Defaults.MaxOutputBytes = 400
+	b.cfg.Agents["echoer"].Invoke = &config.Invocation{Args: stubArgs("--emit", fixture), Prompt: "argv"}
+	b.changes = newChangeStore()
+	session := bridgeSession(t, b)
+
+	started := callToolStructured(t, session, "ask_echoer", map[string]any{"prompt": "PING"})
+	done := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": started.RunID, "timeout_s": 10})
+
+	if done.VendorErrors != 1 {
+		t.Fatalf("vendor_errors = %d, want 1", done.VendorErrors)
+	}
+	if !strings.Contains(done.Output, "SENTINEL-usage-limit") {
+		t.Fatalf("truncation removed the count's evidence: %q", done.Output)
+	}
+	if !strings.Contains(done.Output, "aaaa") {
+		t.Fatalf("the answer vanished entirely: %q", done.Output)
+	}
+}
+
+// TestTheStillRunningNoticeCarriesNoVendorDerivedText pins FR-13.3 against the
+// digest. `notice` is deliberately outside the envelope, so nothing derived
+// from the agent's stream may appear in it.
+func TestTheStillRunningNoticeCarriesNoVendorDerivedText(t *testing.T) {
+	fixture := emitFixture(t,
+		`{"type":"thread.started","thread_id":"th_1"}`,
+		`{"type":"item.completed","item":{"type":"custom_vendor_tool","text":"x"}}`,
+		`{"type":"item.completed","item":{"type":"file_change","path":"/tmp/vendor-secret-path.go","kind":"modified"}}`,
+	)
+
+	b, _ := newTierFullTestBridge(t)
+	b.cfg.Agents["echoer"].Invoke = &config.Invocation{
+		Args: stubArgs("--emit", fixture, "--sleep", "30s"), Prompt: "argv",
+	}
+	b.changes = newChangeStore()
+	session := bridgeSession(t, b)
+
+	started := callToolStructured(t, session, "ask_echoer", map[string]any{"prompt": "slow"})
+	out := callToolStructured(t, session, "await_agent",
+		map[string]any{"run_id": started.RunID, "timeout_s": 2})
+
+	if out.State == string(run.StateCompleted) {
+		t.Skip("the stub finished before the await timeout; nothing to assert")
+	}
+	if out.Notice == "" {
+		t.Fatal("a still-running result told the caller nothing at all")
+	}
+	for _, forbidden := range []string{"custom_vendor_tool", "/tmp/vendor-secret-path.go"} {
+		if strings.Contains(out.Notice, forbidden) {
+			t.Fatalf("the unenveloped notice repeated vendor-derived text %q: %s", forbidden, out.Notice)
+		}
+	}
+	if !strings.Contains(out.Notice, "tool calls") {
+		t.Fatalf("the notice lost its activity counts: %s", out.Notice)
+	}
+}

@@ -111,3 +111,22 @@ func TestCleanCountsWhatItRemoved(t *testing.T) {
 		t.Errorf("Removed = %d, want 3", r.Removed)
 	}
 }
+
+// TestEnvelopeTailDropsTheBodyWhenTheTailFillsTheBudget pins the degenerate
+// case the budget arithmetic creates: the tail is what must survive, so when it
+// alone exhausts maxBytes the body goes rather than the two interleaving, and
+// the caller is told the result was truncated.
+func TestEnvelopeTailDropsTheBodyWhenTheTailFillsTheBudget(t *testing.T) {
+	tail := strings.Repeat("t", 40)
+	r := EnvelopeTail("codex", "run-1", "body that must not survive", tail, 20)
+
+	if !r.Truncated {
+		t.Error("the body was dropped, so the result must report itself truncated")
+	}
+	if strings.Contains(r.Text, "body that must not survive") {
+		t.Errorf("the body outlived a budget it did not fit in: %q", r.Text)
+	}
+	if !strings.Contains(r.Text, "tttt") {
+		t.Errorf("the tail is the evidence and must survive: %q", r.Text)
+	}
+}

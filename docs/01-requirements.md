@@ -332,6 +332,54 @@ own limit:
   replaced, not passed through, and bidi controls, zero-width characters and the Unicode
   tag block are stripped along with ANSI and C0/C1.
 
+### FR-13 — Result delivery to the caller
+
+A tool result has two halves — the text `content` blocks and `structuredContent` — and the
+bridge advertises an output schema, so a host may render either half alone. Claude Code
+renders `structuredContent` only.
+
+- **FR-13.1** Every caller-facing string `await_agent` produces appears in **both** halves:
+  the run's result, a `needs_input` question, the still-running progress digest, and the
+  `superseded` pointer. A result carried in one half only is invisible to some hosts.
+- **FR-13.2** The structured copy of B's words is the *enveloped* string, byte for byte
+  identical to the text block. Raw vendor text never appears in structured output: the
+  envelope's provenance marking must travel with the text into whichever half a host
+  renders (SR-5).
+- **FR-13.3** Bridge-authored text about the run — the progress digest, the `superseded`
+  pointer — is carried as `notice`, outside the envelope, because it is not B's words.
+- **FR-13.4** `await_agent` reports the same `confinement` and `sandboxed` as the `ask_*`
+  that started the run. These describe how the run is contained, so a caller reading only
+  the await result must not be told a confined, sandboxed run was neither. The values are
+  read off the run, which is why the run itself has to carry them: a decision field left
+  unset on the `Spec` makes every downstream surface — `await_agent`, `bridge runs`, the
+  TUI header — under-report containment for every run.
+
+### FR-14 — Vendor-reported errors on a clean exit
+
+An agent can report an error in its own event stream and still exit 0. Codex does this on a
+usage limit, and also on warnings about the **operator's own** config: a malformed agent role
+file, a skill description shortened to fit its budget. A run that answered correctly and
+exited 0 was observed emitting three such events (codex 0.154.0), so the presence of an error
+event carries no verdict on the run.
+
+- **FR-14.1** Error events in B's stream are recorded on the run and reach the caller even
+  when the process exited 0, so what the vendor reported is visible rather than inferred from
+  exit status.
+- **FR-14.2** The structured field is `vendor_errors`, a **count** of the error events the
+  stream carried. It says "the agent's stream reported N errors" and nothing else. A non-zero
+  count is **not** a failure verdict: the run's state is the only field that says whether the
+  run failed. What counts as an error is the vendor's own event type, never a match against
+  error prose.
+- **FR-14.3** The messages are B's words and go inside the envelope with the rest of the
+  body. They are budgeted **before** the answer, so a run whose output reaches
+  `max_output_bytes` shortens the answer and keeps the messages: a count whose evidence was
+  truncated away is a signal with nothing behind it.
+- **FR-14.4** An error event carrying no message still increments the count. The occurrence
+  is what the count reports, not the availability of text to show. Both the count and the
+  retained messages are capped per run.
+- **FR-14.5** The run's state is unchanged: exit status decides that. `completed` with a
+  non-zero `vendor_errors` is a real and distinct outcome, and the common one.
+
 ---
 
 ## 4. Security requirements

@@ -398,7 +398,7 @@ Protocol: newline-delimited JSON. Verbs: `subscribe <run_id>`, `steer`, `answer`
 | Tool | Purpose |
 |---|---|
 | `ask_<agent>` | Start a run. Returns `run_id`, opaque `session_handle`, watch hint. Never a filesystem path. |
-| `await_agent` | Bounded wait; returns result or progress digest. Re-callable. |
+| `await_agent` | Bounded wait; returns result or progress digest, in both the text content and `structuredContent` (FR-13). `vendor_errors` counts the error events the run's stream carried, including on a clean exit; it is a count, not a failure verdict (FR-14). Re-callable. |
 | `steer_agent` | Inject guidance into a live run (counted, capped). |
 | `cancel_agent` | Kill the run's process group. |
 | `list_runs` | Runs owned by this server. A `superseded` run reports its successor's id (`superseded_by`). |
