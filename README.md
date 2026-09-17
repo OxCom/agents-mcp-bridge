@@ -145,7 +145,10 @@ and macOS; compile builds all six cross-compile targets; smoke boots the binary,
 four stages are reusable workflows (`stage-*.yml`) that `.github/workflows/release.yml`
 calls in the same order before publishing, so a tag runs exactly the checks a pull request
 does. The conformance suite and the pinned-vendor-CLI smoke job run nightly and on manual
-dispatch only — never on a pull request from a fork.
+dispatch only — never on a pull request from a fork. Conformance needs vendor credentials
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` in the `vendor-clis` environment); without them the
+job warns and every test skips, because a CLI answering 401 passes some of these tests for
+the wrong reason.
 
 ## Documentation
 

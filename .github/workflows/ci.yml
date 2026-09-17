@@ -70,8 +70,25 @@ jobs:
       - name: install vendor CLIs
         run: |
           npm install -g @anthropic-ai/claude-code@2.1.272 @openai/codex@0.154.0
+      # Without credentials the vendor CLIs answer 401 / "Not logged in", which
+      # fails some of these tests and — worse — passes others for the wrong
+      # reason: a run that never reached a model also never writes the file
+      # TestCodexReadOnlyRefusesAWrite looks for. So the credentials are
+      # checked first, and BRIDGE_CONFORMANCE is only set when both are
+      # present; without them every test skips on its existing gate and the
+      # step warns instead of asserting a property nothing verified. Populate
+      # ANTHROPIC_API_KEY and OPENAI_API_KEY in the `vendor-clis` environment
+      # to arm the suite.
       - env:
-          BRIDGE_CONFORMANCE: '1'
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: go test ./conformance/ -v -timeout 30m
+        run: |
+          missing=
+          [ -n "$ANTHROPIC_API_KEY" ] || missing="$missing ANTHROPIC_API_KEY"
+          [ -n "$OPENAI_API_KEY" ] || missing="$missing OPENAI_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "::warning title=conformance not run::vendor credentials missing in the vendor-clis environment:$missing. The suite proves nothing this run."
+          else
+            export BRIDGE_CONFORMANCE=1
+          fi
+          go test ./conformance/ -v -timeout 30m
