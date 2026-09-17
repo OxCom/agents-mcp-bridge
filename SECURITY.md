@@ -74,7 +74,9 @@ trust boundary, not plumbing. The full analysis is in
     (`BRIDGE_CONFORMANCE=1 go test ./conformance/`, gated because it spends vendor credits)
     passes against `claude` 2.1.272: the child raises `AskUserQuestion`, the question reaches
     the gate, the operator answers over the control channel with a filename the prompt never
-    mentions, and that filename appears in the child's own final output. Three defects had to
+    mentions, and that filename appears in the child's own final output. CI never runs this
+    suite, and this project holds no vendor credentials, so the claim rests on that dated local
+    run against `claude` 2.1.272 rather than on a check that repeats. Three defects had to
     be fixed before it could pass, each found by the one before it: the adapter's `--tools`
     list omitted `AskUserQuestion` (now load rule 21); the gate advertised `input` as a byte
     array, inferred from a `json.RawMessage` field, so the vendor refused its own call before
@@ -106,9 +108,11 @@ trust boundary, not plumbing. The full analysis is in
     ./conformance/`) passes against `claude` 2.1.272, asserting that the predecessor reaches
     `needs_input`, is superseded by the successor named in the continue response, and that the
     successor's own output carries a filename supplied only by the operator's answer. It spends
-    real vendor credits and is not run on a pull request. **What this does not claim:** that a
-    successor never re-asks an answered question. The chain's original prompt is replayed
-    verbatim in the seed, so a caller whose prompt says "ask me whether to ..." gets a
+    real vendor credits and is not run by CI at all: this project holds no vendor credentials,
+    and the suite runs only by hand, with keys the runner supplies. The claim therefore rests on
+    that dated local run against `claude` 2.1.272, not on a check that repeats. **What this does
+    not claim:** that a successor never re-asks an answered question. The chain's original
+    prompt is replayed verbatim in the seed, so a caller whose prompt says "ask me whether to ..." gets a
     successor that asks again — obeying the caller, not losing the answer. The bridge does not
     rewrite a caller's prompt to prevent that; `defaults.max_continuations` (default 3) bounds
     the chain instead. A continuation record is
@@ -189,16 +193,17 @@ If you find another such trap, it is a valid security report.
 in CI from the first commit, and Windows binaries are published as unsupported previews
 until the port lands — the blocker is that npm-installed `claude` and `codex` are `.cmd`
 shims, which the adapter rules refuse. As of 2026-09-16 the Windows implementations of all
-four seams exist, but **nothing executes them**: CI cross-compiles Windows and runs no test
-there. A Windows binary is therefore not a supported artifact, and the mechanisms below are
-claims about code that has compiled, not about behaviour anyone has observed. The one
-exception as of 2026-09-16 is the `doctor` smoke job, which now runs on `windows-latest`
-and therefore executes `platform.NewPaths`, the DACL'd state and runtime directories, the
-loader and the semantic rules. It reaches the loader only via
-`--insecure-skip-permission-check`, because config permission checking on Windows is
-unimplemented and refuses: on that platform a config file is trusted without proof that
-only its owner can write it, which is a real gap, not a check that passed. The
-security-relevant mechanisms differ by platform and are implemented behind four interfaces:
+four seams exist and CI executes them: the `unit` job runs the full race-enabled suite
+(`go test -race ./...`) on `windows-latest`, so the build-tagged Windows tests run there, as
+does the `doctor` smoke job, which exercises `platform.NewPaths`, the DACL'd state and
+runtime directories, the loader and the semantic rules. Windows behaviour that no Windows
+test covers remains declared, not enforced — a claim about code that has compiled, not about
+behaviour anyone has observed. A Windows binary is therefore still not a supported artifact.
+The `doctor` job reaches the loader only via `--insecure-skip-permission-check`, because
+config permission checking on Windows is unimplemented and refuses: on that platform a
+config file is trusted without proof that only its owner can write it, which is a real gap,
+not a check that passed. The security-relevant mechanisms differ by platform and are
+implemented behind four interfaces:
 
 - **Windows has no argv.** The OS passes one command-line string that each program parses
   itself, so the bridge sets the command line explicitly with MSVCRT-correct quoting and

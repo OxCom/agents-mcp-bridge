@@ -254,5 +254,5 @@ accepts those flags. Only the gated suites do that.
 - `go test ./internal/config/ -run TestDocumentedExamplesLoad -v` — the same check CI
   runs on every documented YAML example, if you are proposing an addition to the docs.
 - `BRIDGE_CONFORMANCE=1 go test ./conformance/` — the only suite that invokes a real
-  `claude` or `codex`. It spends credits, is not run by default, and is what `SECURITY.md`'s
+  `claude` or `codex`. It spends credits, is never run by CI, and is what `SECURITY.md`'s
   enforced/declared distinction rests on for any claim about real vendor behaviour.

@@ -129,7 +129,7 @@ make all      # go vet + go test -race ./... + go build
 make cross    # verify all six release targets compile (linux/darwin/windows × amd64/arm64)
 ```
 
-Two suites are gated and do not run in `make all` or the default CI job:
+Two suites are gated and do not run in `make all` or CI:
 
 ```bash
 BRIDGE_CONFORMANCE=1 go test ./conformance/ -v   # invokes real claude/codex CLIs, spends credits
@@ -144,11 +144,12 @@ and macOS; compile builds all six cross-compile targets; smoke boots the binary,
 `bridge doctor` on Linux, macOS and Windows and loads every documented config example. The
 four stages are reusable workflows (`stage-*.yml`) that `.github/workflows/release.yml`
 calls in the same order before publishing, so a tag runs exactly the checks a pull request
-does. The conformance suite and the pinned-vendor-CLI smoke job run nightly and on manual
-dispatch only — never on a pull request from a fork. Conformance needs vendor credentials
-(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` in the `vendor-clis` environment); without them the
-job warns and every test skips, because a CLI answering 401 passes some of these tests for
-the wrong reason.
+does. The pinned-vendor-CLI smoke job runs nightly and on manual dispatch only — never on a
+pull request from a fork. CI does not run the conformance suite at all: it needs vendor
+credentials this project does not hold. It is a local suite, run by hand with
+`BRIDGE_CONFORMANCE=1` against your own `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`. A CLI
+answering 401 or "Not logged in" passes some of these tests for the wrong reason, so running
+it unauthenticated is worse than not running it.
 
 ## Documentation
 

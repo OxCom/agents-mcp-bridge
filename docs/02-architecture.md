@@ -467,9 +467,10 @@ way to get a Codex approval UI.
 Exactly four interfaces carry every OS difference, plus `DialControl`, the client half of
 `ControlEndpoint` (a unix socket on POSIX, a named pipe whose server SID the client verifies on
 Windows). Nothing else in the codebase is platform-aware. Their POSIX implementations are
-tested on Linux and macOS in CI; the Windows ones are **compiled, never executed** — CI
-cross-builds Windows and runs no test there, so every Windows behaviour is declared, not
-enforced:
+tested on Linux and macOS in CI; the Windows ones execute there too — CI's unit job runs
+`go test -race ./...` on `windows-latest`, so the build-tagged Windows tests do run. Windows
+behaviour that no test covers is declared, not enforced, and Windows stays unsupported until
+v1.1:
 
 ```go
 type ControlEndpoint interface { Listen(name string) (net.Listener, error); VerifyPeer(net.Conn) error }

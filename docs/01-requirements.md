@@ -5,9 +5,10 @@ delegate work to any *other* CLI coding agent, safely, observably, and steerably
 
 Status: implemented through Phase 5, plus Phase 3 interactive mode. Windows is unsupported
 (Phase 5a, targets v1.1). The gated conformance suite (`BRIDGE_CONFORMANCE=1 go test
-./conformance/`) exists but is not run by default; interactive mode is Claude Code only and
-*declared* rather than *enforced*, because that suite has never run against a real vendor CLI.
-See `SECURITY.md` for the enforced/declared distinction.
+./conformance/`) is not run by CI at all; it runs by hand, against real vendor CLIs, with
+credentials the runner supplies. Interactive mode is Claude Code only, and its properties are
+*enforced* as of 2026-09-16 on the evidence of that dated local run against `claude` 2.1.272,
+not on a check that repeats. See `SECURITY.md` for the enforced/declared distinction.
 
 ---
 
