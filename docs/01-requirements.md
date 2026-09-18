@@ -357,11 +357,14 @@ renders `structuredContent` only.
 
 ### FR-14 — Vendor-reported errors on a clean exit
 
-An agent can report an error in its own event stream and still exit 0. Codex does this on a
-usage limit, and also on warnings about the **operator's own** config: a malformed agent role
-file, a skill description shortened to fit its budget. A run that answered correctly and
-exited 0 was observed emitting three such events (codex 0.154.0), so the presence of an error
-event carries no verdict on the run.
+An agent can report an error in its own event stream and still exit 0. Codex does this on
+warnings about the **operator's own** config: a malformed agent role file, a skill
+description shortened to fit its budget. A run that answered correctly and exited 0 was
+observed emitting three such events (codex 0.154.0), so the presence of an error event
+carries no verdict on the run.
+
+The reverse also happens: a vendor can state its reason on the stream and exit non-zero with
+**empty stderr**. A codex usage limit does exactly this (`12` S8).
 
 - **FR-14.1** Error events in B's stream are recorded on the run and reach the caller even
   when the process exited 0, so what the vendor reported is visible rather than inferred from
@@ -380,6 +383,10 @@ event carries no verdict on the run.
   retained messages are capped per run.
 - **FR-14.5** The run's state is unchanged: exit status decides that. `completed` with a
   non-zero `vendor_errors` is a real and distinct outcome, and the common one.
+- **FR-14.6** When the process exits non-zero and stderr is empty, the caller's failure line
+  carries the reason the vendor stated on its own stream. Reporting only the exit status
+  would hand the caller a number with no cause, which is what a usage limit looked like
+  before this requirement.
 
 ---
 

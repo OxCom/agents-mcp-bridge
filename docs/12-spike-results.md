@@ -34,6 +34,7 @@ what Phase 6.4's CI smoke tests automate.
 | S5 | Does `--ignore-user-config` break auth? | **No.** Authenticated and answered. Only `config.toml` is skipped; agent-role and skill files still loaded. Help confirms auth still uses `CODEX_HOME`. |
 | S6 | Does the environment reach child MCP servers? | **No.** A spawned MCP server received exactly 12 variables (`HOME LANG LC_ALL LOGNAME NODE_EXTRA_CA_CERTS PATH PWD SHELL SHLVL TERM USER _`); the marker was absent. `shell_environment_policy.inherit=all` changed nothing — it governs shell commands, not MCP children. The only channel is the per-server `mcp_servers.<name>.env` map. |
 | S7 | Prompt on stdin | `codex exec … -` works on both `exec` and `exec resume`. `--` is not needed. The prompt never appears in argv. |
+| S8 | How does codex report a refused turn? | **Two events the S1 shape does not cover**, observed live on 2026-09-17 under a usage limit: a **top-level** `{"type":"error","message":"..."}` — not an `item.completed` error item — followed by `{"type":"turn.failed","error":{"message":"..."}}`, then exit 1 with **empty stderr**. A parser that maps both to the unknown kind leaves the caller `the agent exited with status 1: ` and no reason. Both are parsed since; `turn.failed` becomes `run.failed` and supplies the failure line when stderr is empty. |
 
 ## 2. Claude Code — claude 2.1.270
 
@@ -74,6 +75,10 @@ what Phase 6.4's CI smoke tests automate.
   boundary and `close_stdin_after: result` ends input when the first turn completes, the
   window to steer a short task can close before an operator reacts. Steering is a feature
   of multi-turn sessions, and the config reference now says so.
+- **A vendor can fail a run without writing to stderr.** The failure line was built from
+  the last stderr line alone, so codex's usage limit reached the caller as a bare exit
+  status. The run now falls back to the reason the vendor stated on its own event stream
+  (S8).
 - **Claude's `result` record repeats the final assistant message.** Appending both hands
   the caller the same answer twice; the result text is used only when the agent produced
   no message of its own.

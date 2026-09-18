@@ -57,6 +57,11 @@ func (r *Run) streamEvents(rc io.ReadCloser, spec Spec, out *capped) bool {
 			// of these are warnings about the operator's own config. Recorded
 			// so the caller sees what the stream reported (FR-14).
 			r.noteVendorError(e.Text)
+		case stream.KindRunFailed:
+			// The vendor's own verdict on the turn. It arrives just before a
+			// non-zero exit whose stderr is empty, so without this the caller
+			// is told the status and nothing else.
+			r.noteVendorFailure(e.Text)
 		case stream.KindRunFinished:
 			if e.Text != "" && !sawMessage {
 				if over := out.append(e.Text + "\n"); over {

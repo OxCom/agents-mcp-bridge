@@ -103,6 +103,14 @@ func runHelper(args []string) int {
 		for _, line := range args[1:] {
 			fmt.Println(line)
 		}
+	case "emitfail":
+		// Prints each line on stdout, then exits non-zero with NOTHING on
+		// stderr. That is what codex does when it refuses a turn: the reason
+		// is on the event stream, not on stderr.
+		for _, line := range args[1:] {
+			fmt.Println(line)
+		}
+		return 1
 	case "rawdrain":
 		if len(args) != 2 {
 			return helperUsage("rawdrain <line>")

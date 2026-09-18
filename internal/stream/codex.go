@@ -26,7 +26,16 @@ func (CodexParser) Name() string { return "codex" }
 type codexLine struct {
 	Type     string `json:"type"`
 	ThreadID string `json:"thread_id"`
-	Item     *struct {
+	// Message carries a TOP-LEVEL {"type":"error"} event's text. It is a
+	// different shape from item.completed's error item, and the one a usage
+	// limit or an auth failure arrives in.
+	Message string `json:"message"`
+	// Error carries {"type":"turn.failed","error":{"message":"..."}}, the
+	// event that immediately precedes exit status 1.
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+	Item *struct {
 		ID      string `json:"id"`
 		Type    string `json:"type"`
 		Text    string `json:"text"`
@@ -78,6 +87,19 @@ func (p CodexParser) Parse(line []byte) (Event, bool) {
 				CachedTokens: v.Usage.CachedInputTokens,
 				OutputTokens: v.Usage.OutputTokens,
 			}
+		}
+	case "error":
+		// Top-level, not an item: this is how codex 0.154.0 reports a usage
+		// limit, an auth failure, or any other refusal of the turn itself.
+		// Mapping it to KindUnknown dropped the only line that says WHY a run
+		// exited 1, and the caller got "exit status 1:" with nothing after it.
+		e.Kind, e.Text = KindVendorError, v.Message
+	case "turn.failed":
+		// The turn's own verdict, carrying the same message one level down.
+		// It is the last event before a non-zero exit.
+		e.Kind = KindRunFailed
+		if v.Error != nil {
+			e.Text = v.Error.Message
 		}
 	case "item.completed":
 		if v.Item == nil {

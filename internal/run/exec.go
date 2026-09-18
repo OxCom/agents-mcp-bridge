@@ -280,8 +280,15 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 		if err != nil {
 			// The agent's own stderr IS task output and is useful to the caller;
 			// the Go error text describes our process handling and is not.
+			// A vendor that reports its refusal on the event stream and exits
+			// with empty stderr — a codex usage limit does exactly this —
+			// would otherwise leave the caller "exited with status 1: ".
+			reason := lastLine(errBuf.String())
+			if reason == "" {
+				reason = r.VendorFailure()
+			}
 			r.finish(StateFailed, outBuf.String(),
-				fmt.Sprintf("the agent exited with status %d: %s", code, lastLine(errBuf.String())),
+				fmt.Sprintf("the agent exited with status %d: %s", code, reason),
 				fmt.Sprintf("%v: %s", err, errBuf.String()), &code, outTruncated)
 			return
 		}

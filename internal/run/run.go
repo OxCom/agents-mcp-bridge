@@ -79,8 +79,13 @@ type Run struct {
 	// differ because an error event need not carry text, and an occurrence
 	// with nothing to show is still an occurrence. Both are capped: an agent
 	// looping on an error must not grow the run without bound.
-	vendorErrors       []string
-	vendorErrorCount   int
+	vendorErrors     []string
+	vendorErrorCount int
+	// vendorFailure is the reason the vendor gave for failing the turn, taken
+	// from its own stream. It is the fallback for the caller's failure line
+	// when the process exits non-zero with empty stderr, which is what a usage
+	// limit looks like on codex.
+	vendorFailure      string
 	transcriptOverflow bool
 	worktree           any
 	steerCh            *steerChannel
@@ -264,6 +269,28 @@ func (r *Run) noteVendorError(text string) {
 	if text != "" {
 		r.vendorErrors = append(r.vendorErrors, text)
 	}
+}
+
+// noteVendorFailure records the vendor's own stated reason for failing the
+// turn. The first one wins: a later event must not overwrite the cause with a
+// consequence.
+func (r *Run) noteVendorFailure(text string) {
+	if text == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.vendorFailure == "" {
+		r.vendorFailure = text
+	}
+}
+
+// VendorFailure reports the vendor's stated failure reason, empty when the
+// stream carried none.
+func (r *Run) VendorFailure() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.vendorFailure
 }
 
 // TakeWorktree returns the run's worktree exactly once, so two callers cannot
