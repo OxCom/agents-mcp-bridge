@@ -1,6 +1,6 @@
 module github.com/oxcom/agents-mcp-bridge
 
-go 1.26.7
+go 1.26.9
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0

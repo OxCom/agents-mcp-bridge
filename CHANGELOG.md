@@ -130,6 +130,10 @@ tagged release, so there are no version headings or dates below — only the acc
 
 ### Fixed
 
+- CI and release builds used whatever Go 1.26 patch release the runner had cached — 1.26.8,
+  which govulncheck flags with nine standard-library advisories in `net/http`, `net/textproto`
+  and `crypto/tls` (GO-2026-6605, -6607, -6608, -6610, -6611, -6612, -6613, -6617 among them).
+  `go.mod` now requires go 1.26.9, and every workflow takes its Go version from `go.mod`.
 - `await_agent` returned the run's result only as a text content block. `mcp.AddTool` infers
   an output schema from the tool's typed return value, and a host that sees an output schema
   may render `structuredContent` alone — Claude Code does — so the caller saw a run id, a

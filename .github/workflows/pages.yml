@@ -1,0 +1,66 @@
+name: Pages
+
+# The docs site: a Jekyll landing page plus the numbered docs and SECURITY.md,
+# built from a staged copy of docs/ rather than docs/ itself. The stage step is
+# what keeps literal {{placeholder}} text from being eaten by Liquid.
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "docs/**"
+      - "SECURITY.md"
+      - ".github/scripts/stage-pages.sh"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# Default deny; each job below requests only what it needs.
+permissions: {}
+
+# One deployment at a time, and never cancel one in flight: a cancelled deploy
+# can leave the site half-updated. Queued runs still collapse.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stage the site source
+        # Inside the workspace, because jekyll-build-pages runs in a container
+        # that mounts only the workspace. The script wraps each page in a raw
+        # block and fails if a page could close that block early.
+        run: bash .github/scripts/stage-pages.sh ./_site_src
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Build the site
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1.0.13
+        with:
+          source: ./_site_src
+          destination: ./_site
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ./_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
