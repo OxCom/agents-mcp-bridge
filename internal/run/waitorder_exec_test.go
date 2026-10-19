@@ -73,9 +73,9 @@ func TestAGrandchildHoldingStdoutDoesNotHangTheRun(t *testing.T) {
 
 func grandchildHoldingStdout(t *testing.T, parser stream.Parser) {
 	t.Helper()
-	old := readerGrace
-	readerGrace = 300 * time.Millisecond
-	t.Cleanup(func() { readerGrace = old })
+	old := readerGrace.Load()
+	readerGrace.Store(int64(300 * time.Millisecond))
+	t.Cleanup(func() { readerGrace.Store(old) })
 
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	spec := waitOrderSpec(t, "run-orphan", "orphan", pidFile)

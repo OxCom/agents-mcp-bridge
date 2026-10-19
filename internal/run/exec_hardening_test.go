@@ -16,9 +16,9 @@ import (
 // shortGrace shrinks readerGrace for one test.
 func shortGrace(t *testing.T, d time.Duration) {
 	t.Helper()
-	old := readerGrace
-	readerGrace = d
-	t.Cleanup(func() { readerGrace = old })
+	old := readerGrace.Load()
+	readerGrace.Store(int64(d))
+	t.Cleanup(func() { readerGrace.Store(old) })
 }
 
 // waiterGroup adds an ExitWaiter to a real group and records the attached cmd.
@@ -30,6 +30,15 @@ type waiterGroup struct {
 
 func (g *waiterGroup) Attach(cmd *exec.Cmd) error { g.cmd = cmd; return g.ProcessGroup.Attach(cmd) }
 func (g *waiterGroup) WaitExit() error            { return g.waitErr }
+
+// AfterStart forwards the two-phase binding (Windows starts the child suspended
+// and only AfterStart resumes it); embedding the interface does not promote it.
+func (g *waiterGroup) AfterStart() error {
+	if ps, ok := g.ProcessGroup.(platform.PostStarter); ok {
+		return ps.AfterStart()
+	}
+	return nil
+}
 
 // postGroup adds a PostStarter to a real group and records the attached cmd.
 type postGroup struct {

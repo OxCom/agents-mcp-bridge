@@ -36,6 +36,7 @@ func streamSpec(t *testing.T, max int) (Spec, *stream.Transcript) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = tr.Close() })
 	return Spec{MaxEventBytes: max, Parser: stream.CodexParser{}, Transcript: tr}, tr
 }
 

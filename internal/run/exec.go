@@ -418,7 +418,11 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 // after the child has exited. The readers see EOF only when every holder of
 // the write end is gone, so a descendant that outlives its parent would
 // otherwise hold the run open. Tests shorten it.
-var readerGrace = 2 * time.Second
+var readerGrace = func() *atomic.Int64 {
+	v := new(atomic.Int64)
+	v.Store(int64(2 * time.Second))
+	return v
+}()
 
 // drainReaders waits for the pipe readers to finish and never blocks forever.
 // It reports whether they finished; false means the output may be partial.
@@ -431,7 +435,7 @@ func drainReaders(wg *sync.WaitGroup, group platform.ProcessGroup, closeReaders 
 	go func() { wg.Wait(); close(done) }()
 
 	wait := func() bool {
-		t := time.NewTimer(readerGrace)
+		t := time.NewTimer(time.Duration(readerGrace.Load()))
 		defer t.Stop()
 		select {
 		case <-done:
