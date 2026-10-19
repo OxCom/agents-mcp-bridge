@@ -247,7 +247,7 @@ func TestPredecessorStopsOccupyingItsSlotWhenTheSuccessorIsAdmitted(t *testing.T
 	if err != nil {
 		t.Fatalf("successor must inherit the predecessor's slot: %v", err)
 	}
-	defer successor.Cancel()
+	t.Cleanup(func() { successor.Cancel(); successor.Await(15 * time.Second) })
 
 	// The predecessor has no child left — needs_input means the process is
 	// already gone — and its slot now belongs to the successor, so the second
@@ -258,7 +258,7 @@ func TestPredecessorStopsOccupyingItsSlotWhenTheSuccessorIsAdmitted(t *testing.T
 	if err != nil {
 		t.Fatalf("the predecessor must stop occupying a slot once its successor is admitted: %v", err)
 	}
-	defer other.Cancel()
+	t.Cleanup(func() { other.Cancel(); other.Await(15 * time.Second) })
 
 	// Two live runs is the cap: a third must be refused, so the handover
 	// frees exactly one slot rather than disabling the accounting.
