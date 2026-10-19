@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -111,6 +112,13 @@ func runHelper(args []string) int {
 			fmt.Println(line)
 		}
 		return 1
+	case "bigthenmsg":
+		// One event over the line limit, a pause, then a normal message. A
+		// parent that closes the pipe after the big line kills this process
+		// with SIGPIPE on the second write, as it did codex (exit 101).
+		fmt.Println(strings.Repeat("x", 200<<10))
+		time.Sleep(300 * time.Millisecond)
+		fmt.Println(`{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"still alive"}}`)
 	case "rawdrain":
 		if len(args) != 2 {
 			return helperUsage("rawdrain <line>")
@@ -119,10 +127,45 @@ func runHelper(args []string) int {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 	case "fakeagent":
 		fakeAgent()
+	case "manyagent":
+		// 50 codex events, the last an agent_message "FINAL", then an
+		// immediate exit: the shape that loses its tail when Wait closes the
+		// read end while a slow reader is still behind.
+		for i := 0; i < 49; i++ {
+			fmt.Printf(`{"type":"item.completed","item":{"id":"i%d","type":"agent_message","text":"part %d"}}`+"\n", i, i)
+		}
+		fmt.Println(`{"type":"item.completed","item":{"id":"last","type":"agent_message","text":"FINAL"}}`)
+	case "orphan":
+		return helperOrphan(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "helper: unknown behaviour %q\n", args[0])
 		return 2
 	}
+	return 0
+}
+
+// helperOrphan starts a background "sleep 30s" helper that inherits this
+// process's stdout and stderr, records its pid in the file named by args[0],
+// prints one line, and exits without waiting for it.
+func helperOrphan(args []string) int {
+	if len(args) != 1 {
+		return helperUsage("orphan <pidfile>")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return 1
+	}
+	c := exec.Command(exe, "sleep", "30s")
+	c.Env = helperEnviron()
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	if err := c.Start(); err != nil {
+		return 1
+	}
+	if err := os.WriteFile(args[0], []byte(strconv.Itoa(c.Process.Pid)), 0o600); err != nil {
+		return 1
+	}
+	fmt.Println("parent done")
 	return 0
 }
 

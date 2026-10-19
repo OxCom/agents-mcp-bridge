@@ -434,7 +434,15 @@ func (r *Run) finish(state State, output, failure, diag string, exitCode *int, t
 	r.state = state
 	r.output = output
 	r.failure = failure
-	r.diag = diag
+	// Keep what setDiagnostic recorded while the run was live (a transcript
+	// that stopped being written, a wait that failed); the terminal message
+	// would otherwise replace it.
+	switch {
+	case r.diag == "":
+		r.diag = diag
+	case diag != "":
+		r.diag = r.diag + "; " + diag
+	}
 	r.exitCode = exitCode
 	r.truncated = truncated
 	r.Finished = time.Now()

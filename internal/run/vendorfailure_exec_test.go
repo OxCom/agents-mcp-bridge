@@ -56,3 +56,44 @@ func TestAVendorFailureReachesTheCallerWhenStderrIsEmpty(t *testing.T) {
 		t.Fatalf("VendorErrors = %q, want the top-level error event", s.VendorErrors)
 	}
 }
+
+// TestAnOversizedVendorEventDoesNotCloseTheStream reproduces the codex exit 101
+// of 2026-10-16: a tool result larger than the line limit made the reader give
+// up and close the pipe, and codex died of EPIPE on its next event.
+func TestAnOversizedVendorEventDoesNotCloseTheStream(t *testing.T) {
+	dir := t.TempDir()
+	tr, err := stream.CreateTranscript(dir, "run-big", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tr.Close() }()
+
+	spec := Spec{
+		RunID:          "run-big",
+		Agent:          "codex",
+		Command:        helperCommand(t),
+		Args:           []string{"bigthenmsg"},
+		CWD:            dir,
+		Env:            helperEnviron(),
+		Timeout:        15 * time.Second,
+		MaxOutput:      1 << 16,
+		MaxEventBytes:  1024,
+		Parser:         stream.CodexParser{},
+		Transcript:     tr,
+		TranscriptPath: tr.Path(),
+	}
+
+	reg := NewRegistry(4, time.Hour)
+	r, err := reg.Start(spec, platform.NewProcessGroup())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := r.Await(10 * time.Second)
+
+	if s.State != StateCompleted {
+		t.Fatalf("state = %q (failure %q), want %q", s.State, s.Failure, StateCompleted)
+	}
+	if !strings.Contains(s.Output, "still alive") {
+		t.Fatalf("Output = %q, want the message after the oversized event", s.Output)
+	}
+}

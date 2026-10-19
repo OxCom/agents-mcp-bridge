@@ -169,7 +169,7 @@ func applyDefaults(c *Config) {
 	setInt(&d.TimeoutS, 900)
 	setInt(&d.MaxOutputBytes, 32768)
 	setInt(&d.MaxPromptBytes, 30720)
-	setInt(&d.MaxEventBytes, 262144)
+	setInt(&d.MaxEventBytes, 1048576)
 	setInt64(&d.MaxTranscriptBytes, 52428800)
 	setInt(&d.MaxConcurrentRuns, 4)
 	setInt(&d.MaxAgentSteers, 3)

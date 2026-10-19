@@ -319,16 +319,29 @@ The result byte cap bounds what reaches A. It bounds nothing else, so each strea
 own limit:
 
 - **FR-12.1** `max_event_bytes` caps a single JSONL line from B. A longer line is
-  truncated, recorded as `event.oversized`, and does not grow the parser's buffer.
+  dropped whole and recorded as `event.oversized`, and the parser's buffer does not grow.
+  The stream keeps being read, because closing it would kill B with EPIPE.
 - **FR-12.2** `max_output_bytes` caps the enveloped result returned to A.
 - **FR-12.3** `max_transcript_bytes` caps the run's whole transcript; breaching it ends
-  the run with `transcript_limit`.
+  the run with `transcript_limit`. Every recorded event counts toward the cap,
+  `event.oversized` included, so a child that emits only oversized lines still reaches it.
+  A transcript write failure does not end the run. The bridge records it once as a
+  diagnostic, stops writing the transcript, and keeps parsing the stream, so B's messages
+  still reach the result and the terminal event still closes a stream-json child's stdin.
 - **FR-12.4** `rate_per_minute` and `max_concurrent_runs` bound how many runs a caller can
   start. On breach the behaviour is `on_concurrency_limit`: `reject` (default, a typed
   error) or `queue` with a bounded `queue_depth`, FIFO, and a queued run that waits past
   its timeout is rejected rather than started late.
 - **FR-12.5** Both stdout and stderr are drained continuously. A slow consumer of the
   transcript never blocks the child — the TUI reads the file, it does not sit in the path.
+  Each stream is read to EOF, not cut off at B's exit. The bridge owns both pipes, so B's
+  exit cannot discard output still in the pipe buffer, and B's final message survives.
+  After B exits, the readers get a grace period (2 s) to reach EOF. If a descendant still
+  holds a write end, the bridge kills B's whole process group and waits one more grace
+  period. As a last resort it closes the read ends. A run never hangs on a descendant.
+  Readers that miss this drain budget leave the output partial: the run is marked
+  truncated and records the diagnostic "output readers did not finish within the drain
+  budget".
 - **FR-12.6** B's output is validated as UTF-8 before sanitization; invalid sequences are
   replaced, not passed through, and bidi controls, zero-width characters and the Unicode
   tag block are stripped along with ANSI and C0/C1.

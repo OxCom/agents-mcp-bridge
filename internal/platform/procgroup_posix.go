@@ -43,11 +43,10 @@ func (g *posixGroup) KillAll() error {
 	if g.attached == nil || g.attached.Process == nil {
 		return nil // never started; nothing to reap
 	}
-	pgid, err := syscall.Getpgid(g.attached.Process.Pid)
-	if err != nil {
-		// The child is already gone; its group died with it.
-		return nil
-	}
+	// Attach made the child its own group leader, so pgid == pid. Getpgid cannot
+	// be used here: once the leader is reaped it fails with ESRCH even while
+	// descendants still live in the group, and the group would go unkilled.
+	pgid := g.attached.Process.Pid
 	// Signal the GROUP (negative pid), not the leader. Signalling the leader
 	// alone leaves its siblings and children running.
 	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {

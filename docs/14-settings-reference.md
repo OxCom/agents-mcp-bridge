@@ -56,7 +56,7 @@ Unknown top-level keys are rejected.
 | `timeout_s` | integer | 900 | 10–86400 | Wall-clock budget per run. On expiry the child's whole process group is killed and the caller gets a sanitized timeout result |
 | `max_output_bytes` | integer | 32768 | 1024–1048576 | Cap on the text returned to the calling agent, applied by the sanitizer on every return path |
 | `max_prompt_bytes` | integer | 30720 | 256–1048576 | Cap on the caller's prompt. A larger prompt is refused with `prompt_too_large` before anything spawns |
-| `max_event_bytes` | integer | 262144 | 1024–4194304 | Cap on a single parsed stream event. A longer line is truncated rather than buffered without bound |
+| `max_event_bytes` | integer | 1048576 | 1024–4194304 | Cap on a single parsed stream event. A longer line is dropped whole and recorded as `event.oversized`; the stream is still read to its end |
 | `max_transcript_bytes` | integer | 52428800 | 65536–1073741824 | Cap on one run's JSONL transcript |
 | `max_depth` | integer | 1 | 0–4 | Delegation depth this server permits. `0` disables delegation: the server exposes no delegation tools at all. Absent means 1 — see the tri-state note below |
 | `max_continuations` | integer | 3 | 0–50 | Links a `needs_input` continuation chain may have. `0` means a stopped run may never be continued |

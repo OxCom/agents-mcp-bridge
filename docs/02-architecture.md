@@ -127,8 +127,18 @@ Owns the lifecycle of a run.
   the vendor's terminal record, not process exit, as turn completion, and closes the
   child's stdin once no further steer is possible. A manager that waits on exit first
   deadlocks until the run timeout.
-- **Reap.** On timeout, cancel, or server shutdown, kills the process group (POSIX) or
-  terminates the job object (Windows), waits, and records the terminal state. No run
+- **Reap.** On every terminal path, a normal exit included, kills the process group
+  (POSIX) or terminates the job object (Windows), waits, and records the terminal state.
+  On POSIX the bridge waits for the leader's exit without reaping it: `waitid` with
+  `WNOWAIT` on Linux, kqueue `EVFILT_PROC` with `NOTE_EXIT` on macOS. The unreaped leader
+  keeps its pid and pgid, so after a normal exit the order is kill the group, drain the
+  pipes to EOF (FR-12.5), then reap. Bytes already in a pipe stay readable after the
+  writers die, and a descendant holding a pipe open costs no grace period. If that wait
+  fails, the bridge records a diagnostic and reaps first; it never kills a live child on
+  the wait error alone. Where the leader is reaped first (that fallback, and Windows,
+  which has no exit waiter), the order is drain, then kill the group. On
+  Windows the kill targets a job handle, so pid reuse does not apply. On timeout and
+  cancel the order is kill, drain, reap ([`11`](11-domain-model.md) §3, invariant 1). No run
   outlives its server — on Windows this holds even on a hard kill of the bridge, because
   `KILL_ON_JOB_CLOSE` is enforced by the kernel.
 

@@ -57,6 +57,23 @@ type PostStarter interface {
 	AfterStart() error
 }
 
+// ExitWaiter is an optional extension to ProcessGroup for platforms where a
+// group is addressed by the leader's pid.
+//
+// WaitExit blocks until the attached leader has exited WITHOUT reaping it. The
+// caller kills the group while the leader is still an unreaped zombie, which
+// keeps the pid and pgid reserved, and reaps (cmd.Wait) only afterwards. Reaping
+// first would free the pid for reuse and let KillAll signal a stranger's group.
+//
+// Implemented on Linux (waitid with WNOWAIT) and on Darwin (kqueue EVFILT_PROC
+// with NOTE_EXIT, which does not reap; golang.org/x/sys/unix has no darwin
+// waitid). A WaitExit error says nothing about the child: the caller falls back
+// to reaping first. Windows signals a job-object handle, so pid reuse does not
+// apply and it does not implement the interface.
+type ExitWaiter interface {
+	WaitExit() error
+}
+
 // ControlEndpoint is the operator's local IPC channel. There is never a TCP
 // listener. VerifyPeer must reject a connection whose peer is not the same user.
 //

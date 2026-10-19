@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/oxcom/agents-mcp-bridge/internal/platform"
@@ -154,11 +156,25 @@ func (reg *Registry) Start(spec Spec, group platform.ProcessGroup) (*Run, error)
 
 func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r *Run, spec Spec, group platform.ProcessGroup) {
 	defer cancel()
+	// State the panic handler needs to leave nothing behind: the read ends of
+	// the output pipes, and a started child nobody has waited for yet.
+	var (
+		cmd        *exec.Cmd
+		started    bool
+		waitIssued bool
+		readersEnd func()
+	)
 	// A panic here would leave the run stuck in "running" forever, with a live
 	// child and a caller blocked on Await. Fail it and kill the group instead.
 	defer func() {
 		if p := recover(); p != nil {
 			_ = group.KillAll()
+			if readersEnd != nil {
+				readersEnd()
+			}
+			if started && !waitIssued {
+				_ = cmd.Wait()
+			}
 			r.finish(StateFailed, "", "the agent run failed unexpectedly",
 				fmt.Sprintf("panic in supervise: %v", p), nil, false)
 		}
@@ -166,7 +182,7 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 
 	// #nosec G204 -- spec.Command is an adapter command from the operator's config, validated
 	// at load; spec.Args are whole argv elements from adapter.BuildArgs. No shell, ever.
-	cmd := exec.Command(spec.Command, spec.Args...)
+	cmd = exec.Command(spec.Command, spec.Args...)
 	cmd.Dir = spec.CWD // authoritative: five surveyed agents have no cwd flag
 	cmd.Env = spec.Env
 
@@ -196,26 +212,49 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 		cmd.Stdin = strings.NewReader(spec.Prompt)
 	}
 
-	stdout, err := cmd.StdoutPipe()
+	// os.Pipe, not cmd.StdoutPipe: Wait closes the read ends of StdoutPipe and
+	// StderrPipe as soon as the process exits, discarding whatever a slower
+	// reader has not yet taken from the kernel buffer. These read ends belong to
+	// run and are closed only after the readers are done.
+	outR, outW, err := os.Pipe()
 	if err != nil {
 		r.finish(StateFailed, "", "the agent could not be started",
 			fmt.Sprintf("stdout pipe: %v", err), nil, false)
 		return
 	}
-	stderr, err := cmd.StderrPipe()
+	errR, errW, err := os.Pipe()
 	if err != nil {
+		_ = outR.Close()
+		_ = outW.Close()
 		r.finish(StateFailed, "", "the agent could not be started",
 			fmt.Sprintf("stderr pipe: %v", err), nil, false)
 		return
 	}
+	closeReaders := func() { _ = outR.Close(); _ = errR.Close() }
+	readersEnd = closeReaders
+	// Every path below ends with the readers finished or abandoned; closing is
+	// idempotent, so this only matters for the paths that return early.
+	defer closeReaders()
+	cmd.Stdout = outW
+	cmd.Stderr = errW
 
 	// The caller learns that the agent did not start; it does not learn the
 	// binary's path or the OS error, which describe the host, not the task.
 	if err := cmd.Start(); err != nil {
+		closeReaders()
+		_ = outW.Close()
+		_ = errW.Close()
 		r.finish(StateFailed, "", "the agent could not be started",
 			fmt.Sprintf("start %s: %v", spec.Command, err), nil, false)
 		return
 	}
+
+	started = true
+
+	// The child holds its own copies. Keeping ours open would stop the readers
+	// from ever seeing EOF.
+	_ = outW.Close()
+	_ = errW.Close()
 
 	// Completes a two-phase process-group binding where the OS needs one.
 	// Windows creates the child suspended so it cannot spawn a descendant
@@ -227,6 +266,9 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 	if ps, ok := group.(platform.PostStarter); ok {
 		if err := ps.AfterStart(); err != nil {
 			_ = group.KillAll()
+			closeReaders()
+			waitIssued = true
+			_ = cmd.Wait()
 			r.finish(StateFailed, "", "the agent could not be started",
 				fmt.Sprintf("bind process group after start: %v", err), nil, false)
 			return
@@ -237,6 +279,9 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 	if steer != nil && spec.FirstMessage != "" {
 		if err := steer.send(spec.FirstMessage); err != nil {
 			_ = group.KillAll()
+			closeReaders()
+			waitIssued = true
+			_ = cmd.Wait()
 			r.finish(StateFailed, "", "the agent could not be given its task",
 				fmt.Sprintf("send first message: %v", err), nil, false)
 			return
@@ -249,7 +294,7 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 		wg           sync.WaitGroup
 		outBuf       capped
 		errBuf       capped
-		outTruncated bool
+		outTruncated atomic.Bool
 	)
 	outBuf.limit = spec.MaxOutput
 	r.mu.Lock()
@@ -258,21 +303,80 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 	errBuf.limit = 8 << 10 // stderr is diagnostic; a small tail is enough
 	wg.Add(2)
 	if spec.Parser != nil {
-		go func() { defer wg.Done(); outTruncated = r.streamEvents(stdout, spec, &outBuf) }()
+		go func() { defer wg.Done(); outTruncated.Store(r.streamEvents(outR, spec, &outBuf)) }()
 	} else {
-		go func() { defer wg.Done(); outTruncated = outBuf.drain(stdout) }()
+		go func() { defer wg.Done(); outTruncated.Store(outBuf.drain(outR)) }()
 	}
-	go func() { defer wg.Done(); errBuf.drain(stderr) }()
+	go func() { defer wg.Done(); errBuf.drain(errR) }()
 
-	waitErr := make(chan error, 1)
-	go func() { waitErr <- cmd.Wait() }()
+	// Reaping frees the leader's pid for reuse, so no KillAll may follow it.
+	// Where the group can wait for exit without reaping, the leader stays a
+	// zombie until reap() runs after the last KillAll. Elsewhere, and when that
+	// wait itself fails, the waiter goroutine reaps immediately.
+	waitIssued = true
+	var (
+		exited       = make(chan struct{})
+		waitErr      = make(chan error, 1)
+		leaderReaped atomic.Bool // set before exited closes
+	)
+	if ew, ok := group.(platform.ExitWaiter); ok {
+		go func() {
+			if err := ew.WaitExit(); err != nil {
+				// A failed wait says nothing about the child. Treating it as an
+				// exit killed a live agent and reported status -1.
+				r.setDiagnostic("waiting for the agent to exit failed, reaping instead: " + err.Error())
+				leaderReaped.Store(true)
+				waitErr <- cmd.Wait()
+			}
+			close(exited)
+		}()
+	} else {
+		go func() {
+			leaderReaped.Store(true)
+			waitErr <- cmd.Wait()
+			close(exited)
+		}()
+	}
+	reap := func() error {
+		<-exited
+		if leaderReaped.Load() {
+			return <-waitErr
+		}
+		return cmd.Wait()
+	}
+
+	// drain waits for the readers within the grace budget. Readers that outlive
+	// it leave the output partial, which the result must say.
+	var readersStuck bool
+	drain := func() {
+		if !drainReaders(&wg, group, closeReaders) {
+			readersStuck = true
+			r.setDiagnostic("output readers did not finish within the drain budget")
+		}
+	}
+	truncated := func() bool { return outTruncated.Load() || readersStuck }
 
 	timeout := time.NewTimer(spec.Timeout)
 	defer timeout.Stop()
 
 	select {
-	case err := <-waitErr:
-		wg.Wait()
+	case <-exited:
+		// The child has exited. Its output may still be in the pipe, and a
+		// descendant may still hold the write end open.
+		if leaderReaped.Load() {
+			// The pid is already free for reuse, so the group may not be
+			// signalled before the readers have had their grace.
+			drain()
+			_ = group.KillAll()
+		} else {
+			// The leader is an unreaped zombie, so its pgid is reserved and the
+			// kill is safe now. Bytes already in the pipe stay readable after
+			// the writers die, and a descendant that inherited stderr no longer
+			// holds the run open for the whole grace.
+			_ = group.KillAll()
+			drain()
+		}
+		err := reap()
 		code := cmd.ProcessState.ExitCode()
 		if err != nil && code == 0 {
 			code = -1
@@ -289,25 +393,62 @@ func (reg *Registry) supervise(ctx context.Context, cancel context.CancelFunc, r
 			}
 			r.finish(StateFailed, outBuf.String(),
 				fmt.Sprintf("the agent exited with status %d: %s", code, reason),
-				fmt.Sprintf("%v: %s", err, errBuf.String()), &code, outTruncated)
+				fmt.Sprintf("%v: %s", err, errBuf.String()), &code, truncated())
 			return
 		}
-		r.finish(StateCompleted, outBuf.String(), "", "", &code, outTruncated)
+		r.finish(StateCompleted, outBuf.String(), "", "", &code, truncated())
 
 	case <-timeout.C:
 		_ = group.KillAll()
-		wg.Wait()
-		<-waitErr
+		drain()
+		_ = reap()
 		r.finish(StateFailed, outBuf.String(),
 			fmt.Sprintf("timed out after %s", spec.Timeout),
-			fmt.Sprintf("timeout; stderr: %s", errBuf.String()), nil, outTruncated)
+			fmt.Sprintf("timeout; stderr: %s", errBuf.String()), nil, truncated())
 
 	case <-ctx.Done():
 		_ = group.KillAll()
-		wg.Wait()
-		<-waitErr
-		r.finish(StateCancelled, outBuf.String(), "cancelled", "cancelled by operator or shutdown", nil, outTruncated)
+		drain()
+		_ = reap()
+		r.finish(StateCancelled, outBuf.String(), "cancelled", "cancelled by operator or shutdown", nil, truncated())
 	}
+}
+
+// readerGrace bounds how long run waits for the stdout and stderr readers
+// after the child has exited. The readers see EOF only when every holder of
+// the write end is gone, so a descendant that outlives its parent would
+// otherwise hold the run open. Tests shorten it.
+var readerGrace = 2 * time.Second
+
+// drainReaders waits for the pipe readers to finish and never blocks forever.
+// It reports whether they finished; false means the output may be partial.
+// On the grace expiring it kills the whole group, which releases any
+// descendant holding a write end, and waits once more. As a last resort it
+// closes the read ends. On Windows a pending read on a pipe may ignore Close;
+// the job-object kill is what frees it there, so the final wait is bounded too.
+func drainReaders(wg *sync.WaitGroup, group platform.ProcessGroup, closeReaders func()) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+
+	wait := func() bool {
+		t := time.NewTimer(readerGrace)
+		defer t.Stop()
+		select {
+		case <-done:
+			return true
+		case <-t.C:
+			return false
+		}
+	}
+	if wait() {
+		return true
+	}
+	_ = group.KillAll()
+	if wait() {
+		return true
+	}
+	closeReaders()
+	return wait()
 }
 
 // capped accumulates output up to a limit, then keeps draining and discarding.

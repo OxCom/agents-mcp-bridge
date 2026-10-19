@@ -68,7 +68,15 @@ This is why the placeholder is `{{vendor_session_id}}` and why no `{{session_id}
 
 Invariants, each of which is a test:
 
-1. A run in any terminal state has no live child process.
+1. A run in any terminal state has no live child process. This holds on a normal exit
+   too: once B exits, the bridge kills B's whole process group (POSIX) or job (Windows),
+   so a descendant B left running does not outlive the run. On POSIX the group is killed
+   before the leader is reaped: the bridge waits for exit without reaping (`waitid` with
+   `WNOWAIT` on Linux, kqueue `EVFILT_PROC` with `NOTE_EXIT` on macOS). The unreaped
+   leader keeps its pid, so the kill cannot reach an unrelated group that reused it. If
+   that wait fails, the bridge records a diagnostic and falls back to reaping first, and
+   only on that path can a reused pid redirect the kill. Windows kills a job-object
+   handle, so pid reuse does not apply.
 2. A run in `awaiting_acceptance` has an intact worktree; a run past it has none.
 3. `needs_input` is the only non-terminal state a run can rest in indefinitely — bounded
    by `question_timeout_s`, after which it becomes `failed`, freeing its concurrency slot.

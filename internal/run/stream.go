@@ -2,7 +2,9 @@ package run
 
 import (
 	"bufio"
+	"errors"
 	"io"
+	"time"
 
 	"github.com/oxcom/agents-mcp-bridge/internal/stream"
 )
@@ -17,18 +19,65 @@ import (
 func (r *Run) streamEvents(rc io.ReadCloser, spec Spec, out *capped) bool {
 	defer func() { _ = rc.Close() }()
 
-	sc := bufio.NewScanner(rc)
 	max := spec.MaxEventBytes
 	if max <= 0 {
-		max = 256 << 10
+		max = 1 << 20
 	}
-	sc.Buffer(make([]byte, 64<<10), max)
+	lr := newLineReader(rc, max)
 
 	truncated := false
 	sawMessage := false
-	for sc.Scan() {
-		line := sc.Bytes()
-		if len(line) == 0 {
+	transcriptFailed := false
+	// record appends to the transcript and reports whether the run must stop
+	// because the transcript hit its cap. The cap is a stop condition, not a
+	// silent truncation. A write failure is reported once and ends transcript
+	// writing only: parsing goes on, because the stream still carries the
+	// agent's messages and the terminal event that closes a stream-json
+	// child's stdin.
+	record := func(e stream.Event) (stop bool) {
+		if transcriptFailed {
+			return false
+		}
+		overLimit, err := spec.Transcript.Append(e)
+		if err != nil {
+			// The watch TUI, the progress digest and the audit trail all read
+			// the transcript, so the operator must see that it is incomplete.
+			r.setDiagnostic("transcript write failed: " + err.Error())
+			transcriptFailed = true
+			return false
+		}
+		if overLimit {
+			r.mu.Lock()
+			r.transcriptOverflow = true
+			r.mu.Unlock()
+			r.Cancel()
+			return true
+		}
+		return false
+	}
+	for {
+		line, tooLong, err := lr.next()
+		if tooLong {
+			// A line longer than the limit is recorded and skipped, and the
+			// stream keeps being read. Returning here would close the pipe
+			// while the vendor is still writing: codex dies of EPIPE with
+			// exit status 101 on its next event.
+			truncated = true
+			if record(stream.Event{
+				Time: time.Now().UTC(),
+				Kind: stream.KindOversized,
+				Text: "a vendor event exceeded the configured line limit and was dropped",
+			}) {
+				return truncated
+			}
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				r.setDiagnostic("vendor stream read failed: " + err.Error())
+			}
+			break
+		}
+		if tooLong || len(line) == 0 {
 			continue
 		}
 		e, ok := spec.Parser.Parse(line)
@@ -76,30 +125,51 @@ func (r *Run) streamEvents(rc io.ReadCloser, spec Spec, out *capped) bool {
 		if e.Kind == stream.KindRunFinished && spec.CloseStdinAfterResult {
 			r.closeSteer()
 		}
-		overLimit, err := spec.Transcript.Append(e)
-		if err != nil {
-			// A transcript that cannot be written is a fault the operator must
-			// see: the watch TUI, the progress digest and the audit trail all
-			// read it. Swallowing the error left a silently empty transcript.
-			r.setDiagnostic("transcript write failed: " + err.Error())
+		if record(e) {
 			return truncated
 		}
-		if overLimit {
-			// The transcript cap is a stop condition, not a silent truncation.
-			r.mu.Lock()
-			r.transcriptOverflow = true
-			r.mu.Unlock()
-			r.Cancel()
-			return truncated
-		}
-	}
-	if err := sc.Err(); err != nil {
-		// A line longer than the buffer is recorded rather than lost.
-		_, _ = spec.Transcript.Append(stream.Event{
-			Kind: stream.KindOversized,
-			Text: "a vendor event exceeded the configured line limit and was dropped",
-		})
-		truncated = true
 	}
 	return truncated
+}
+
+// lineReader yields newline-terminated lines of at most max bytes. A longer
+// line is consumed to its end and reported as tooLong, so one oversized event
+// costs that event and nothing after it.
+type lineReader struct {
+	br  *bufio.Reader
+	max int
+	buf []byte
+}
+
+func newLineReader(r io.Reader, max int) *lineReader {
+	return &lineReader{br: bufio.NewReaderSize(r, 64<<10), max: max}
+}
+
+// next returns the following line without its terminator. The slice is valid
+// until the next call. err is non-nil at end of input or on a read error.
+func (l *lineReader) next() (line []byte, tooLong bool, err error) {
+	l.buf = l.buf[:0]
+	for {
+		chunk, isPrefix, rerr := l.br.ReadLine()
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) && len(l.buf) > 0 && !tooLong {
+				// An unterminated last line whose length is a multiple of the
+				// buffer size arrives as an empty chunk with EOF; the data is
+				// already in buf. The next call reports the EOF.
+				return l.buf, false, nil
+			}
+			return l.buf, tooLong, rerr
+		}
+		if !tooLong {
+			if len(l.buf)+len(chunk) > l.max {
+				tooLong = true
+				l.buf = l.buf[:0]
+			} else {
+				l.buf = append(l.buf, chunk...)
+			}
+		}
+		if !isPrefix {
+			return l.buf, tooLong, nil
+		}
+	}
 }
