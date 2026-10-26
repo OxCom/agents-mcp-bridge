@@ -18,11 +18,12 @@ jobs:
         with:
           # Keep this pinned, never "latest": "latest" can resolve to a
           # golangci-lint built with an older Go toolchain than go.mod's Go
-          # 1.26, which it then refuses to run against. v2.13.2 is built with a
-          # Go 1.26.x toolchain. The action's v7 dropped golangci-lint v1 and
-          # its v8 requires >= v2.1.0, so v2.13.2 satisfies v9 as well and
-          # still matches this repo's `version: "2"` .golangci.yml.
-          version: v2.13.2
+          # 1.27, which it then refuses to run against. v2.15.0 is built with a
+          # Go 1.27.0 toolchain; the check compares only major.minor. The
+          # action's v7 dropped golangci-lint v1 and its v8 requires >= v2.1.0,
+          # so v2.15.0 satisfies v9 as well and still matches this repo's
+          # `version: "2"` .golangci.yml.
+          version: v2.15.0
       # `make all` treats unformatted code as a failure, and nothing else in CI
       # checks it, so a gofmt drift would only surface on a developer's machine.
       - name: gofmt

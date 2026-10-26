@@ -171,7 +171,7 @@ it unauthenticated is worse than not running it.
 
 ## Requirements
 
-Go 1.26+ to build (see `go.mod`). **v1.0 supports Linux and macOS**; Windows targets v1.1.
+Go 1.27+ to build (see `go.mod`). **v1.0 supports Linux and macOS**; Windows targets v1.1.
 As of 2026-09-16 the Windows seams are executed in CI — the unit suite and `bridge doctor`
 both run on `windows-latest` — but the binaries stay unsupported previews because the
 blocker is unchanged: npm installs `claude` and `codex` as `.cmd` shims, which the loader
