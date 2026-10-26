@@ -61,8 +61,9 @@ func NewPaths() (Paths, error) {
 		}
 		// MkdirAll honours umask and does nothing to an existing directory, so
 		// the mode is asserted explicitly.
-		// #nosec G703 -- the directory is the bridge's own state or runtime path, derived from
-		// this process's operator-owned environment; a delegated agent never sets it.
+		// #nosec G302 G703 -- the directory is the bridge's own state or runtime path, derived
+		// from this process's operator-owned environment; a delegated agent never sets it.
+		// G302 wants a file's 0600, but a directory needs 0700 to be entered.
 		if err := os.Chmod(dir, dirMode); err != nil {
 			return nil, fmt.Errorf("restrict %s: %w", dir, err)
 		}
