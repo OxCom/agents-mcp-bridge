@@ -86,5 +86,7 @@ jobs:
         run: |
           # Pinned for the reason in the gitleaks step: gosec v2.29.0 added
           # G703, which failed this repo on code no commit had touched.
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          # v2.30.0: v2.29.0's x/tools cannot read Go 1.27 export data
+          # ("export data version 5 is greater than maximum supported").
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
           gosec -exclude-generated ./...
